@@ -1,0 +1,2626 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MES Braskim</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700&family=Raleway:wght@600;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#0f172a; --navy2:#1b2740; --azul:#011689;
+    --fundo:#eef0f4; --card:#fff; --linha:#dfe3ea;
+    --tinta:#0f172a; --apagado:#64748b;
+    --ok:#059669; --atencao:#d97706; --atraso:#dc2626; --neutro:#94a3b8;
+    --r:10px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'DM Sans',system-ui,sans-serif;background:var(--fundo);color:var(--tinta);-webkit-font-smoothing:antialiased}
+  .mono{font-family:'DM Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+  .rot{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--apagado)}
+  .titulo-secao{font-family:'Raleway',sans-serif;font-weight:800;font-size:14px;letter-spacing:.06em;text-transform:uppercase}
+  .v-ok{color:var(--ok)} .v-at{color:var(--atencao)} .v-ar{color:var(--atraso)}
+
+  /* ---------- chrome ---------- */
+  header{background:var(--navy);color:#fff;padding:12px 22px;display:flex;align-items:center;gap:24px;flex-wrap:wrap;position:sticky;top:0;z-index:30}
+  .marca{display:flex;align-items:baseline;gap:9px}
+  .marca b{font-family:'Raleway',sans-serif;font-weight:800;font-size:18px;letter-spacing:.14em}
+  .marca span{font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.18em;color:#7c8db0;text-transform:uppercase}
+  nav{display:flex;gap:2px;margin-left:14px}
+  nav button{background:transparent;border:0;color:#8ba0c4;font-family:'DM Mono',monospace;font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:9px 13px;border-radius:7px;cursor:pointer}
+  nav button:hover{background:var(--navy2);color:#fff}
+  nav button[aria-current="page"]{background:var(--azul);color:#fff}
+  nav button:focus-visible{outline:2px solid #7aa2ff;outline-offset:2px}
+  .hdir{margin-left:auto;display:flex;align-items:center;gap:22px}
+  .hcampo{line-height:1.25}
+  .hcampo .rot{color:#7c8db0}
+  .hcampo .val{font-family:'DM Mono',monospace;font-size:14px;color:#fff;font-variant-numeric:tabular-nums}
+  .relogio .val{font-size:21px;font-weight:500}
+  .restante{background:var(--navy2);border:1px solid #2c3a58;border-radius:var(--r);padding:6px 13px}
+  .restante .val{color:#8ecfae}
+
+  main{padding:22px;max-width:1560px;margin:0 auto}
+  .tela{display:none} .tela.on{display:block}
+
+  h1.pag{font-family:'Raleway',sans-serif;font-weight:800;font-size:22px;margin-bottom:3px}
+  p.sub{color:var(--apagado);font-size:14px;margin-bottom:20px}
+
+  /* ---------- KPIs ---------- */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:1px;background:var(--linha);border:1px solid var(--linha);border-radius:var(--r);overflow:hidden;margin-bottom:20px}
+  .kpi{background:var(--card);padding:12px 15px}
+  .kpi .val{font-family:'DM Mono',monospace;font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.15}
+  .kpi .val small{font-size:12px;color:var(--apagado);margin-left:2px}
+  .kpi .rot{margin-top:3px}
+  .kpi.destaque{background:var(--azul)}
+  .kpi.destaque .val{color:#fff} .kpi.destaque .rot{color:#a9b6ee}
+
+  /* ---------- exceção ---------- */
+  .bloco{background:var(--card);border:1px solid var(--linha);border-radius:var(--r);overflow:hidden;margin-bottom:20px}
+  .bloco-topo{padding:13px 17px;border-bottom:1px solid var(--linha);display:flex;align-items:center;gap:11px}
+  .contador{font-family:'DM Mono',monospace;font-size:11px;background:var(--atraso);color:#fff;padding:2px 8px;border-radius:20px}
+  .contador.zero{background:var(--ok)}
+  .alerta{display:flex;align-items:center;gap:14px;padding:13px 17px;border-bottom:1px solid #f1f3f7}
+  .alerta:last-child{border-bottom:0}
+  .selo{width:4px;align-self:stretch;border-radius:3px;flex:none}
+  .alerta .ln{font-weight:700;font-size:14px;min-width:96px}
+  .alerta .tx{flex:1;font-size:14px;color:#334155}
+  .alerta .mt{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;white-space:nowrap}
+  .vazio{padding:32px 17px;text-align:center;color:var(--apagado);font-size:14px}
+  .vazio b{display:block;color:var(--ok);font-size:16px;margin-bottom:4px}
+
+  /* ---------- cards de linha ---------- */
+  .grade{margin-bottom:20px}
+  .grade-postos{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}
+  .lc{background:var(--card);border:1px solid var(--linha);border-radius:var(--r);overflow:hidden;border-top:4px solid var(--neutro)}
+  .lc[data-s="ok"]{border-top-color:var(--ok)}
+  .lc[data-s="atencao"]{border-top-color:var(--atencao)}
+  .lc[data-s="atraso"]{border-top-color:var(--atraso)}
+  .lc[data-s="setup"]{border-top-color:var(--azul)}
+  .lc-topo{padding:14px 17px 10px;display:flex;align-items:flex-start;gap:10px}
+  .lc-nome{font-family:'Raleway',sans-serif;font-weight:800;font-size:16px}
+  .lc-prod{font-size:13px;color:var(--apagado);margin-top:2px}
+  .estado{margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:20px;white-space:nowrap;display:flex;align-items:center;gap:6px}
+  .estado[data-s="ok"]{background:#e7f6ef;color:var(--ok)}
+  .estado[data-s="atencao"]{background:#fdf1e0;color:var(--atencao)}
+  .estado[data-s="atraso"]{background:#fdeaea;color:var(--atraso)}
+  .estado[data-s="setup"]{background:#e6e8f5;color:var(--azul)}
+  .estado[data-s="parada"]{background:#eef1f5;color:#475569}
+  .estado[data-s="sem_lote"]{background:#eef1f5;color:#94a3b8}
+  .ponto{width:6px;height:6px;border-radius:50%;background:currentColor}
+  .estado[data-s="ok"] .ponto{animation:pulsa 1.6s ease-in-out infinite}
+  @keyframes pulsa{0%,100%{opacity:1}50%{opacity:.25}}
+
+  .trilho-bloco{padding:2px 17px 14px}
+  .trilho-topo{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+  .decorrido{font-family:'DM Mono',monospace;font-size:26px;font-weight:500;font-variant-numeric:tabular-nums}
+  .delta{font-family:'DM Mono',monospace;font-size:13px;font-weight:500}
+  .trilho{position:relative;height:22px;background:#eef1f5;border-radius:5px;overflow:hidden}
+  .preenche{height:100%;transition:width 1s linear,background .5s}
+  .preenche[data-s="ok"]{background:var(--ok)}
+  .preenche[data-s="atencao"]{background:var(--atencao)}
+  .preenche[data-s="atraso"]{background:var(--atraso)}
+  .preenche[data-s="setup"]{background:var(--azul)}
+  .preenche[data-s="parada"]{background:var(--neutro)}
+  .marca-padrao{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--navy)}
+  .marca-padrao::after{content:attr(data-rot);position:absolute;top:calc(100% + 5px);left:50%;transform:translateX(-50%);font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;color:var(--navy);white-space:nowrap}
+  .trilho-rod{display:flex;justify-content:space-between;margin-top:19px}
+  .trilho-rod .rot{font-size:9px}
+
+  .metricas{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--linha)}
+  .m{padding:10px 17px;border-right:1px solid var(--linha)}
+  .m:last-child{border-right:0}
+  .m .val{font-family:'DM Mono',monospace;font-size:17px;font-weight:500;font-variant-numeric:tabular-nums}
+  .m .val small{font-size:11px;color:var(--apagado)}
+  .barra-qtd{height:3px;background:#eef1f5;border-radius:2px;margin-top:6px;overflow:hidden}
+  .barra-qtd i{display:block;height:100%;background:var(--azul);transition:width 1s linear}
+  .lc-rod{padding:9px 17px;background:#f8f9fb;border-top:1px solid var(--linha);display:flex;gap:16px;flex-wrap:wrap;align-items:center}
+  .lc-rod span{font-family:'DM Mono',monospace;font-size:11px;color:var(--apagado)}
+  .lc-rod b{color:var(--tinta);font-weight:500}
+  .lc-rod a{margin-left:auto;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--azul);text-decoration:none;cursor:pointer}
+  .lc-rod a:hover{text-decoration:underline}
+
+  /* ---------- KIOSK ---------- */
+  .k-abas{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+  .k-abas button{background:var(--card);border:1px solid var(--linha);border-radius:8px;padding:11px 18px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:14px;cursor:pointer;color:var(--apagado)}
+  .k-abas button[aria-pressed="true"]{background:var(--navy);border-color:var(--navy);color:#fff}
+  .kiosk{background:var(--navy);border-radius:14px;color:#fff;overflow:hidden;max-width:640px;margin:0 auto}
+  .k-cab{padding:20px 24px;border-bottom:1px solid #24324e}
+  .k-linha{font-family:'Raleway',sans-serif;font-weight:800;font-size:24px;letter-spacing:.04em}
+  .k-lote{color:#8ba0c4;font-size:15px;margin-top:3px}
+  .k-nums{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid #24324e}
+  .k-num{padding:18px 24px;border-right:1px solid #24324e}
+  .k-num:last-child{border-right:0}
+  .k-num .val{font-family:'DM Mono',monospace;font-size:30px;font-weight:500;font-variant-numeric:tabular-nums}
+  .k-num .rot{color:#7c8db0;margin-top:3px}
+  .k-acao{padding:26px 24px}
+  .btn-gigante{width:100%;background:var(--ok);border:0;border-radius:14px;color:#fff;font-family:'DM Sans',sans-serif;font-weight:700;font-size:30px;padding:38px 20px;cursor:pointer;letter-spacing:.02em;transition:transform .08s,filter .15s}
+  .btn-gigante:hover{filter:brightness(1.08)}
+  .btn-gigante:active{transform:scale(.985)}
+  .btn-gigante:focus-visible{outline:3px solid #fff;outline-offset:3px}
+  .btn-gigante small{display:block;font-size:13px;font-weight:400;opacity:.82;margin-top:6px;letter-spacing:.04em}
+  .btn-gigante.iniciar{background:var(--azul)}
+  .btn-gigante.retomar{background:var(--atencao)}
+  .k-sec{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:14px}
+  .btn-sec{background:#1b2740;border:1px solid #33415c;border-radius:12px;color:#c7d2e5;font-family:'DM Sans',sans-serif;font-weight:700;font-size:17px;padding:20px;cursor:pointer}
+  .btn-sec:hover{background:#24324e;color:#fff}
+  .btn-sec.perigo:hover{background:var(--atraso);border-color:var(--atraso);color:#fff}
+  .k-vazio{padding:44px 24px;text-align:center;color:#8ba0c4}
+  .k-flash{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);background:var(--ok);color:#fff;font-family:'DM Mono',monospace;font-size:14px;padding:12px 22px;border-radius:30px;opacity:0;pointer-events:none;transition:opacity .25s;z-index:50}
+  .k-flash.on{opacity:1}
+  .k-setup{padding:24px;text-align:center}
+  .k-setup .crono{font-family:'DM Mono',monospace;font-size:52px;font-weight:500}
+  .k-setup .meta{color:#8ba0c4;font-size:14px;margin-top:4px}
+
+  /* modal motivos */
+  .modal{position:fixed;inset:0;background:rgba(8,12,22,.8);display:none;align-items:center;justify-content:center;padding:20px;z-index:60}
+  .modal.on{display:flex}
+  .modal-cx{background:var(--navy);border-radius:14px;padding:26px;max-width:560px;width:100%;color:#fff}
+  .modal-cx h3{font-family:'Raleway',sans-serif;font-weight:800;font-size:19px;margin-bottom:4px}
+  .modal-cx p{color:#8ba0c4;font-size:14px;margin-bottom:18px}
+  .motivos{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .motivos button{background:#1b2740;border:1px solid #33415c;border-radius:11px;color:#e2e8f0;font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px;padding:20px 14px;cursor:pointer;text-align:left}
+  .motivos button:hover{background:var(--atraso);border-color:var(--atraso);color:#fff}
+  .fechar{margin-top:16px;width:100%;background:transparent;border:1px solid #33415c;color:#8ba0c4;border-radius:10px;padding:12px;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer}
+
+  /* ---------- formulários ---------- */
+  .form{background:var(--card);border:1px solid var(--linha);border-radius:var(--r);padding:22px;max-width:760px}
+  .campos{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .campo{display:flex;flex-direction:column;gap:5px}
+  .campo.full{grid-column:1/-1}
+  .campo label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--apagado)}
+  .campo select,.campo input{border:1px solid var(--linha);border-radius:8px;padding:11px 12px;font-family:'DM Sans',sans-serif;font-size:15px;background:#fff;color:var(--tinta)}
+  .campo select:focus,.campo input:focus{outline:2px solid var(--azul);outline-offset:-1px;border-color:var(--azul)}
+  .previa{background:#f4f6fb;border:1px solid #dbe0ee;border-radius:10px;padding:15px 17px;margin-top:18px;display:flex;gap:28px;flex-wrap:wrap}
+  .previa .val{font-family:'DM Mono',monospace;font-size:21px;font-weight:500}
+  .previa .calc{font-family:'DM Mono',monospace;font-size:11px;color:var(--apagado);margin-top:4px}
+  .btn-primario{margin-top:18px;background:var(--azul);border:0;color:#fff;border-radius:9px;padding:14px 26px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:15px;cursor:pointer}
+  .btn-primario:hover{filter:brightness(1.15)}
+  .btn-primario:disabled{background:var(--neutro);cursor:not-allowed}
+
+  /* ---------- tabelas ---------- */
+  table{width:100%;border-collapse:collapse;background:var(--card)}
+  th{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--apagado);text-align:left;padding:11px 15px;border-bottom:1px solid var(--linha);font-weight:400}
+  td{padding:12px 15px;border-bottom:1px solid #f1f3f7;font-size:14px}
+  tbody tr:last-child td{border-bottom:0}
+  td.num{font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums;text-align:right}
+  .tag{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:3px 8px;border-radius:20px;background:#eef1f5;color:#475569}
+  .tag.ok{background:#e7f6ef;color:var(--ok)}
+  .tag.ruim{background:#fdeaea;color:var(--atraso)}
+  .tag.med{background:#fdf1e0;color:var(--atencao)}
+  .tag.azul{background:#e6e8f5;color:var(--azul)}
+
+  .nota{text-align:center;font-family:'DM Mono',monospace;font-size:10px;color:#94a3b8;letter-spacing:.1em;padding:26px 0 8px;text-transform:uppercase}
+
+  /* ---------- APONTAMENTO DA SUPERVISORA ---------- */
+  .ap{background:var(--card);border:1px solid var(--linha);border-radius:var(--r);overflow:hidden;margin-bottom:16px;border-left:4px solid var(--neutro)}
+  .ap[data-s="ok"]{border-left-color:var(--ok)}
+  .ap[data-s="atencao"]{border-left-color:var(--atencao)}
+  .ap[data-s="atraso"]{border-left-color:var(--atraso)}
+  .ap[data-s="parada"]{border-left-color:var(--atraso);background:#fffbfb}
+  .ap[data-s="sem_lote"]{opacity:.72}
+  .ap-topo{display:flex;align-items:center;gap:14px;padding:13px 17px;flex-wrap:wrap}
+  .ap-nome{font-family:'Raleway',sans-serif;font-weight:800;font-size:15px;min-width:190px}
+  .ap-nome span{display:block;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--apagado);font-weight:400;margin-top:2px}
+  .ap-corpo{display:grid;grid-template-columns:1.1fr 1fr auto;gap:16px;padding:0 17px 15px;align-items:end}
+  .ap-campo{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .ap-campo label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--apagado)}
+  .ap-campo input,.ap-campo select{border:1px solid var(--linha);border-radius:7px;padding:9px 11px;font-family:'DM Mono',monospace;font-size:14px;background:#fff;color:var(--tinta);min-width:0}
+  .ap-campo input:focus,.ap-campo select:focus{outline:2px solid var(--azul);outline-offset:-1px}
+  .ap-cx{display:flex;align-items:center;gap:10px}
+  .ap-cx .conta{font-family:'DM Mono',monospace;font-size:22px;font-weight:500;font-variant-numeric:tabular-nums;white-space:nowrap}
+  .ap-cx .conta small{font-size:12px;color:var(--apagado)}
+  .ap-cx .dv{font-family:'DM Mono',monospace;font-size:13px;font-weight:500;padding:3px 8px;border-radius:20px}
+  .ap-cx .dv.ruim{background:#fdeaea;color:var(--atraso)} .ap-cx .dv.bom{background:#e7f6ef;color:var(--ok)}
+  .ap-botoes{display:flex;gap:7px;flex-wrap:wrap}
+  .bt{border:1px solid var(--linha);background:#fff;border-radius:8px;padding:10px 14px;font-family:'DM Sans',sans-serif;font-weight:700;font-size:13px;cursor:pointer;white-space:nowrap;color:var(--tinta)}
+  .bt:hover{background:#f1f3f7}
+  .bt.mais{background:var(--ok);border-color:var(--ok);color:#fff;font-size:15px;padding:10px 18px}
+  .bt.mais:hover{filter:brightness(1.1)}
+  .bt.parar{border-color:#f5c2c2;color:var(--atraso)}
+  .bt.parar:hover{background:var(--atraso);border-color:var(--atraso);color:#fff}
+  .bt.retomar{background:var(--atencao);border-color:var(--atencao);color:#fff}
+  .bt.iniciar{background:var(--azul);border-color:var(--azul);color:#fff}
+  .bt:focus-visible{outline:2px solid var(--azul);outline-offset:2px}
+  .ap-parado{background:#fdeaea;border-top:1px solid #f5c2c2;padding:10px 17px;display:flex;align-items:center;gap:12px}
+  .ap-parado b{color:var(--atraso)}
+  .ap-parado .mono{color:var(--atraso);font-size:16px;font-weight:500}
+
+  .ap-setup{background:#e9ecf7;border-top:1px solid #c9d0ea;padding:13px 17px;display:grid;grid-template-columns:auto 1fr 1fr auto;gap:14px;align-items:end}
+  .ap-setup .crono{font-family:'DM Mono',monospace;font-size:30px;font-weight:500;color:var(--azul);font-variant-numeric:tabular-nums;line-height:1}
+  .ap-setup .crono.estourou{color:var(--atraso)}
+  .ap-setup .crono small{display:block;font-family:'DM Mono',monospace;font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--apagado);margin-top:4px;font-weight:400}
+  .ap-setup .campo-s{display:flex;flex-direction:column;gap:5px;min-width:0}
+  .ap-setup label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--apagado)}
+  .ap-setup select,.ap-setup input{border:1px solid #c9d0ea;border-radius:7px;padding:8px 10px;font-family:'DM Sans',sans-serif;font-size:13px;background:#fff;color:var(--tinta);min-width:0}
+  .ap-setup select:focus,.ap-setup input:focus{outline:2px solid var(--azul);outline-offset:-1px}
+  .ap-setup .vs{font-family:'DM Mono',monospace;font-size:12px;white-space:nowrap;padding-bottom:9px}
+
+  table.ord{border-top:1px solid var(--linha)}
+  table.ord th{padding:8px 14px;font-size:9px}
+  table.ord td{padding:9px 14px;font-size:13px;vertical-align:middle}
+  table.ord tr.rodando{background:#f4f6fb}
+  table.ord input{border:1px solid var(--linha);border-radius:6px;padding:7px 9px;font-family:'DM Mono',monospace;font-size:13px;background:#fff;color:var(--tinta)}
+  table.ord input:focus{outline:2px solid var(--azul);outline-offset:-1px;border-color:var(--azul)}
+  .in-lote{width:104px}
+  .in-lote.pedindo{border-color:var(--azul);background:#eef1fb;animation:piscaLote 1.4s ease-in-out infinite}
+  @keyframes piscaLote{0%,100%{border-color:var(--azul)}50%{border-color:#93a4e8}}
+  .in-qtd{width:88px;text-align:right;font-weight:500}
+  .ap-vazio{padding:18px 17px;color:var(--apagado);font-size:14px}
+  table.ord .bt{padding:6px 11px;font-size:12px}
+
+  /* ---------- QUADRO DE POSTO ---------- */
+  .grupo{margin-bottom:22px}
+  .grupo-cab{display:flex;align-items:center;gap:12px;margin-bottom:11px}
+  .grupo-cab h2{font-family:'Raleway',sans-serif;font-weight:800;font-size:15px;letter-spacing:.08em;text-transform:uppercase}
+  .grupo-cab .risco{flex:1;height:1px;background:var(--linha)}
+  .grupo-cab .resumo{font-family:'DM Mono',monospace;font-size:11px;color:var(--apagado);white-space:nowrap}
+
+  .lote-fab{display:flex;align-items:center;gap:10px;padding:10px 17px;background:#f8f9fb;border-top:1px solid var(--linha);border-bottom:1px solid var(--linha)}
+  .lote-fab label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--apagado);white-space:nowrap}
+  .lote-fab input{flex:1;min-width:0;border:1px solid var(--linha);border-radius:6px;padding:7px 10px;font-family:'DM Mono',monospace;font-size:14px;background:#fff;color:var(--tinta)}
+  .lote-fab input:focus{outline:2px solid var(--azul);outline-offset:-1px}
+  .lote-fab .rot{white-space:nowrap}
+
+  .caixas{display:grid;grid-template-columns:1fr 1fr 1fr;border-bottom:1px solid var(--linha)}
+  .cx-bloco{padding:13px 17px;border-right:1px solid var(--linha);text-align:center}
+  .cx-bloco:last-child{border-right:0}
+  .cx-val{font-size:28px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1.1}
+  .cx-desvio.ruim{background:#fdeaea} .cx-desvio.ruim .cx-val{color:var(--atraso)}
+  .cx-desvio.bom{background:#e7f6ef}  .cx-desvio.bom .cx-val{color:var(--ok)}
+
+  table.hh{border-top:1px solid var(--linha)}
+  table.hh th{padding:7px 17px;font-size:9px}
+  table.hh td{padding:7px 17px;font-size:13px;border-bottom:1px solid #f6f7f9}
+  table.hh tbody tr:last-child td{border-bottom:0;background:#f8f9fb}
+
+  /* ---------- PROGRAMAÇÃO ---------- */
+  .cola{width:100%;min-height:150px;border:1px solid var(--linha);border-radius:var(--r);padding:14px;font-family:'DM Mono',monospace;font-size:12px;line-height:1.6;background:#fff;color:var(--tinta);resize:vertical;white-space:pre;overflow-x:auto}
+  .cola:focus{outline:2px solid var(--azul);outline-offset:-1px}
+  .dica{font-family:'DM Mono',monospace;font-size:11px;color:var(--apagado);margin:8px 0 14px;line-height:1.6}
+
+  .rota{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:4px}
+  .et{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.06em;padding:3px 7px;border-radius:5px;background:#eef1f5;color:#475569;white-space:nowrap}
+  .et.granel{background:#e6e8f5;color:var(--azul)}
+  .et.prim{background:#e7f6ef;color:var(--ok)}
+  .et.shr{background:#fdf1e0;color:var(--atencao)}
+  .et.cx{background:#f1f3f7;color:#334155}
+  .rota .sep{color:var(--neutro);font-family:'DM Mono',monospace;font-size:11px}
+  .alerta-parse{background:#fdf1e0;color:#92400e;font-family:'DM Mono',monospace;font-size:10px;padding:3px 7px;border-radius:5px;display:inline-block;margin-top:4px}
+
+  .resumo-imp{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--linha);border:1px solid var(--linha);border-radius:var(--r);overflow:hidden;margin:18px 0}
+  .resumo-imp > div{background:var(--card);padding:13px 16px}
+  .resumo-imp .val{font-family:'DM Mono',monospace;font-size:22px;font-weight:500}
+
+  /* ---------- LINHA GEL: POSTOS ---------- */
+  .fluxo{display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center;margin-bottom:20px}
+  .posto{background:var(--card);border:1px solid var(--linha);border-radius:var(--r);padding:18px 20px;border-top:4px solid var(--neutro)}
+  .posto.gargalo{border-top-color:var(--atraso);box-shadow:0 0 0 1px var(--atraso)}
+  .posto.folga{border-top-color:var(--ok)}
+  .posto h3{font-family:'Raleway',sans-serif;font-weight:800;font-size:17px;letter-spacing:.03em}
+  .posto .desc{font-size:13px;color:var(--apagado);margin-top:2px;margin-bottom:12px}
+  .posto .cap{font-family:'DM Mono',monospace;font-size:34px;font-weight:500;font-variant-numeric:tabular-nums;line-height:1}
+  .posto .cap small{font-size:13px;color:var(--apagado);margin-left:4px}
+  .posto .conta{font-family:'DM Mono',monospace;font-size:11px;color:var(--apagado);margin-top:6px}
+  .selo-gargalo{display:inline-block;margin-top:11px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:20px;background:#fdeaea;color:var(--atraso)}
+  .selo-folga{display:inline-block;margin-top:11px;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;padding:4px 9px;border-radius:20px;background:#e7f6ef;color:var(--ok)}
+
+  .pulmao{text-align:center;padding:0 6px}
+  .pulmao .seta{font-family:'DM Mono',monospace;font-size:26px;color:var(--neutro)}
+  .pulmao .rot{margin-top:4px;white-space:nowrap}
+  .pulmao .acumulo{font-family:'DM Mono',monospace;font-size:15px;font-weight:500;color:var(--azul);margin-top:6px}
+
+  .paralelo{display:grid;gap:14px}
+  .ctrl{display:flex;align-items:center;gap:12px;margin-top:13px;padding-top:13px;border-top:1px solid var(--linha)}
+  .ctrl label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--apagado);flex:1}
+  .ctrl input{width:74px;border:1px solid var(--linha);border-radius:7px;padding:8px 10px;font-family:'DM Mono',monospace;font-size:15px;text-align:center}
+  .ctrl input:focus{outline:2px solid var(--azul);outline-offset:-1px}
+
+  .veredito{border-radius:var(--r);padding:17px 20px;margin-bottom:20px;display:flex;gap:14px;align-items:flex-start}
+  .veredito.mal{background:#fdeaea;border:1px solid #f5c2c2}
+  .veredito.bem{background:#e7f6ef;border:1px solid #b8e3cf}
+  .veredito .ic{font-family:'DM Mono',monospace;font-size:17px}
+  .veredito p{font-size:15px;line-height:1.55;color:#334155}
+  .veredito p b{color:var(--tinta)}
+  .veredito .acao{display:block;margin-top:7px;font-family:'DM Mono',monospace;font-size:12px;letter-spacing:.03em}
+
+  @media(max-width:860px){.fluxo{grid-template-columns:1fr}.pulmao{padding:8px 0}.pulmao .seta{transform:rotate(90deg);display:inline-block}}
+
+
+  /* ---------- PARADAS ---------- */
+  .em-curso{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:20px}
+  .pc{background:var(--card);border:1px solid var(--linha);border-left:4px solid var(--atraso);border-radius:var(--r);padding:16px 18px}
+  .pc .crono{font-family:'DM Mono',monospace;font-size:34px;font-weight:500;color:var(--atraso);font-variant-numeric:tabular-nums}
+  .pc .mot{font-family:'Raleway',sans-serif;font-weight:800;font-size:17px;margin-top:2px}
+  .pc .ctx{font-size:13px;color:var(--apagado);margin-top:4px}
+  .pc .cat{display:inline-block;margin-top:10px}
+
+  .pareto{padding:6px 0}
+  .pl{display:grid;grid-template-columns:190px 1fr 130px;gap:14px;align-items:center;padding:11px 17px;border-bottom:1px solid #f1f3f7}
+  .pl:last-child{border-bottom:0}
+  .pl .nm{font-size:14px;font-weight:500}
+  .pl .nm span{display:block;font-family:'DM Mono',monospace;font-size:10px;color:var(--apagado);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+  .pbar{height:22px;background:#f1f3f7;border-radius:4px;overflow:hidden}
+  .pbar i{display:block;height:100%;border-radius:4px;transition:width .6s}
+  .pl .vl{text-align:right;font-family:'DM Mono',monospace;font-variant-numeric:tabular-nums}
+  .pl .vl b{font-size:17px;font-weight:500}
+  .pl .vl span{display:block;font-size:10px;color:var(--apagado);letter-spacing:.08em;text-transform:uppercase;margin-top:2px}
+  .gargalo{background:#fdeaea;border:1px solid #f5c2c2;border-radius:var(--r);padding:15px 18px;margin-bottom:20px;display:flex;gap:13px;align-items:flex-start}
+  .gargalo .ic{font-family:'DM Mono',monospace;font-size:16px;color:var(--atraso)}
+  .gargalo p{font-size:14px;color:#334155;line-height:1.5}
+  .gargalo p b{color:var(--tinta)}
+
+  @media(max-width:820px){
+    .campos{grid-template-columns:1fr}
+    .hdir{gap:14px}
+    .hcampo:not(.relogio):not(.restante){display:none}
+    nav{order:3;width:100%;margin-left:0;overflow-x:auto}
+  }
+  @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="marca"><b>BRASKIM</b><span>Execução da Produção</span></div>
+  <nav id="nav">
+    <button data-tela="dashboard" aria-current="page">Dashboard</button>
+    <button data-tela="apontamento">Apontamento</button>
+    <button data-tela="programacao">Programação</button>
+    <button data-tela="paradas">Paradas</button>
+    <button data-tela="resultados">Resultados</button>
+    <button data-tela="config">Configuração</button>
+  </nav>
+  <div class="hdir">
+    <div class="hcampo relogio">
+      <div class="val mono" id="relogio">14:12:38</div>
+      <div class="rot" id="data">—</div>
+    </div>
+    <div class="hcampo restante">
+      <div class="val mono" id="restante">01:35</div>
+      <div class="rot">Resta de turno</div>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <!-- ============ DASHBOARD ============ -->
+  <section class="tela on" id="tela-dashboard">
+    <div class="kpis" id="kpis"></div>
+    <div class="bloco">
+      <div class="bloco-topo">
+        <span class="titulo-secao">Precisa de você agora</span>
+        <span class="contador" id="qtd-alertas">0</span>
+      </div>
+      <div id="alertas"></div>
+    </div>
+    <div class="grade" id="grade"></div>
+  </section>
+
+  <!-- ============ RESULTADOS POR LINHA ============ -->
+  <section class="tela" id="tela-resultados">
+    <h1 class="pag">Resultados da linha</h1>
+    <p class="sub">Tudo abaixo é derivado dos eventos do turno. Nenhum número foi digitado por ninguém.</p>
+
+    <div class="k-abas" id="r-abas"></div>
+    <div id="r-corpo"></div>
+    <!-- ============ LINHA GEL — POSTOS ============ -->
+  <div id="bal-gel" style="display:none">
+    <h2 class="titulo-secao" style="margin:26px 0 6px">Balanceamento dos postos</h2>
+    <p class="sub">O envase alimenta duas embalagens em paralelo, com pulmão livre entre elas. A linha anda na velocidade do gargalo — não na do envase.</p>
+
+    <div id="veredito"></div>
+
+    <div class="fluxo">
+      <!-- ENVASE -->
+      <div class="posto" id="p-envase">
+        <h3>Envase</h3>
+        <div class="desc">Enche o gel. Único, alimenta os dois lados.</div>
+        <div class="cap" id="cap-envase">76<small>un/min</small></div>
+        <div class="conta">meta de projeto</div>
+        <div id="selo-envase"></div>
+        <div class="ctrl">
+          <label for="i-envase">Velocidade do envase</label>
+          <input type="number" id="i-envase" value="76" min="1">
+        </div>
+      </div>
+
+      <!-- PULMÃO -->
+      <div class="pulmao">
+        <div class="seta">→</div>
+        <div class="rot">Pulmão</div>
+        <div class="acumulo" id="acumulo">—</div>
+      </div>
+
+      <!-- EMBALAGEM: dois postos paralelos -->
+      <div class="paralelo">
+        <div class="posto" id="p-cr01">
+          <h3>CR01 · Encartuchadeira</h3>
+          <div class="desc">Automática.</div>
+          <div class="cap" id="cap-cr01">64<small>un/min</small></div>
+          <div class="conta">velocidade de máquina</div>
+          <div id="selo-cr01"></div>
+          <div class="ctrl">
+            <label for="i-cr01">Velocidade CR01</label>
+            <input type="number" id="i-cr01" value="64" min="0">
+          </div>
+        </div>
+
+        <div class="posto" id="p-cr04">
+          <h3>CR04 · Manual</h3>
+          <div class="desc">Escala com gente. Parada típica: falta de funcionário.</div>
+          <div class="cap" id="cap-cr04">4<small>un/min</small></div>
+          <div class="conta" id="conta-cr04">—</div>
+          <div id="selo-cr04"></div>
+          <div class="ctrl">
+            <label for="i-pes">Pessoas na CR04</label>
+            <input type="number" id="i-pes" value="1" min="0" max="12">
+          </div>
+          <div class="ctrl" style="border-top:0;padding-top:0;margin-top:8px">
+            <label for="i-cxh">Caixas por hora / pessoa</label>
+            <input type="number" id="i-cxh" value="10" min="1">
+          </div>
+          <div class="ctrl" style="border-top:0;padding-top:0;margin-top:8px">
+            <label for="i-uncx">Unidades por caixa</label>
+            <input type="number" id="i-uncx" value="96" min="1">
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">O que isso faz com o tempo do lote</span></div>
+      <table><thead><tr>
+        <th>Cenário</th><th class="num">Gargalo</th><th class="num">Capacidade</th>
+        <th class="num">Lote de 6.720 un</th><th class="num">Quem fica esperando</th>
+      </tr></thead><tbody id="tb-cenarios"></tbody></table>
+    </div>
+  </div>
+  </section>
+
+  <!-- ============ APONTAMENTO — a tela da supervisora ============ -->
+  <section class="tela" id="tela-apontamento">
+    <h1 class="pag">Apontamento</h1>
+    <p class="sub">A tela da Paula. Todos os postos numa página: o que está rodando, quantas caixas saíram, quem parou e por quê.</p>
+    <div id="apont"></div>
+  </section>
+
+  <!-- ============ PROGRAMAÇÃO ============ -->
+  <section class="tela" id="tela-programacao">
+    <h1 class="pag">Programação do dia</h1>
+    <p class="sub">Cole a planilha do Google Sheets. O sistema lê a rota que já está escrita no nome do produto — cartucho, shrink e caixa — e calcula o resto.</p>
+
+    <div class="bloco" style="padding:20px">
+      <textarea class="cola" id="cola" spellcheck="false"></textarea>
+      <p class="dica">Colunas, na ordem da sua planilha: Ordem · Descrição · U.M. · Observação · Plano · Real · Lote · Defeito<br>
+      Selecione as linhas no Sheets, Ctrl+C, e cole aqui. As colunas vêm separadas por tabulação.</p>
+      <button class="btn-primario" id="btn-ler" style="margin-top:0">Ler programação</button>
+      <button class="btn-primario" id="btn-subir" style="margin-top:0;margin-left:8px;background:var(--ok)" disabled>Subir para o chão de fábrica</button>
+    </div>
+
+    <div id="resumo-imp"></div>
+    <div id="carga"></div>
+
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">Rota decodificada</span></div>
+      <table><thead><tr>
+        <th>Ordem</th><th>Produto e rota</th><th>Linha</th>
+        <th class="num">Plano</th><th class="num">Un/emb.</th><th class="num">Unidades</th>
+        <th class="num">Tempo padrão</th><th class="num">Gargalo</th><th class="num">Defeito</th>
+      </tr></thead><tbody id="tb-prog"></tbody></table>
+    </div>
+  </section>
+
+  <!-- ============ TURNOS ============ -->
+  <section class="tela" id="tela-config">
+    <h1 class="pag">Configuração</h1>
+    <h2 class="titulo-secao" style="margin:22px 0 10px">Turnos</h2>
+    <p class="sub">Turno é registro, não cadastro fixo. Cada dia pode ser diferente — e é isso que o OEE precisa saber.</p>
+
+    <div class="form" style="margin-bottom:20px">
+      <div class="campos">
+        <div class="campo">
+          <label for="t-linha">Linha</label>
+          <select id="t-linha"></select>
+        </div>
+        <div class="campo">
+          <label for="t-nome">Nome do turno</label>
+          <input type="text" id="t-nome" value="2º Turno">
+        </div>
+        <div class="campo">
+          <label for="t-ini">Início</label>
+          <input type="time" id="t-ini" value="15:48">
+        </div>
+        <div class="campo">
+          <label for="t-fim">Fim</label>
+          <input type="time" id="t-fim" value="23:00">
+        </div>
+        <div class="campo">
+          <label for="t-pes">Colaboradores</label>
+          <input type="number" id="t-pes" value="6" min="1">
+        </div>
+        <div class="campo">
+          <label for="t-int">Intervalo de refeição (min)</label>
+          <input type="number" id="t-int" value="60" min="0">
+        </div>
+      </div>
+      <button class="btn-primario" id="btn-turno">Registrar turno</button>
+    </div>
+
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">Turnos de hoje</span></div>
+      <table><thead><tr>
+        <th>Linha</th><th>Turno</th><th>Janela</th>
+        <th class="num">Intervalo</th><th class="num">Tempo disponível</th><th class="num">Pessoas</th>
+      </tr></thead><tbody id="tb-turnos"></tbody></table>
+    </div>
+  
+    <h2 class="titulo-secao" style="margin:30px 0 10px">Motivos de parada</h2>
+    <p class="sub" style="margin-bottom:14px">A lista muda conforme o posto. "Falta de funcionário" só aparece nos postos manuais; "quebra da encartuchadeira" não existe no envase.</p>
+<div class="form" style="margin-bottom:20px">
+      <div class="campos">
+        <div class="campo">
+          <label for="mp-nome">Motivo</label>
+          <input type="text" id="mp-nome" placeholder="Ex.: Troca de bobina">
+        </div>
+        <div class="campo">
+          <label for="mp-cat">Categoria</label>
+          <select id="mp-cat">
+            <option>Abastecimento</option><option>Manutenção</option><option>Processo</option>
+            <option>Qualidade</option><option>Pessoas</option><option>Planejada</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="mp-pen">Penaliza o OEE?</label>
+          <select id="mp-pen">
+            <option value="1">Sim — parada não planejada</option>
+            <option value="0">Não — parada planejada (limpeza, refeição)</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="mp-posto">Aparece em qual posto?</label>
+          <select id="mp-posto"></select>
+        </div>
+      </div>
+      <button class="btn-primario" id="btn-motivo">Adicionar motivo</button>
+    </div>
+
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">Motivos de parada</span>
+        <span class="rot" style="margin-left:auto" id="qtd-motivos"></span></div>
+      <table><thead><tr>
+        <th>Motivo</th><th>Categoria</th><th>Postos</th><th>OEE</th>
+        <th class="num">Usado hoje</th><th class="num">Tempo</th><th></th>
+      </tr></thead><tbody id="tb-motivos"></tbody></table>
+    </div>
+  </section>
+
+  <!-- ============ PARADAS ============ -->
+  <section class="tela" id="tela-paradas">
+    <h1 class="pag">Paradas</h1>
+    <p class="sub">Onde a fábrica perde tempo, ordenado pelo que mais dói. Um toque no kiosk gera cada linha desta tela.</p>
+
+    <div id="gargalo"></div>
+    <div class="em-curso" id="em-curso"></div>
+
+    <div class="bloco">
+      <div class="bloco-topo">
+        <span class="titulo-secao">Perda de ritmo · micro-paradas</span>
+        <span class="rot" style="margin-left:auto">detectadas pelo ritmo da contagem — ninguém apontou</span>
+      </div>
+      <div id="micro"></div>
+    </div>
+
+    <div class="bloco">
+      <div class="bloco-topo">
+        <span class="titulo-secao">Pareto de paradas</span>
+        <span class="rot" style="margin-left:auto" id="total-parado">—</span>
+      </div>
+      <div class="pareto" id="pareto"></div>
+    </div>
+
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">Todas as paradas do turno</span></div>
+      <table><thead><tr>
+        <th>Linha</th><th>Motivo</th><th>Categoria</th><th>Lote</th>
+        <th class="mono">Início</th><th class="mono">Fim</th>
+        <th class="num">Duração</th><th class="num">OEE</th>
+      </tr></thead><tbody id="tb-paradas"></tbody></table>
+    </div>
+  </section>
+
+  <p class="nota">Protótipo · tudo é derivado de eventos · nada é digitado duas vezes</p>
+</main>
+
+<div class="k-flash" id="flash"></div>
+
+<div class="modal" id="modal-parada">
+  <div class="modal-cx">
+    <h3>Por que a linha parou?</h3>
+    <p>Um toque. Nada de texto.</p>
+    <div class="motivos" id="motivos"></div>
+    <button class="fechar" id="cancelar-parada">Cancelar</button>
+  </div>
+</div>
+
+<script>
+
+
+
+
+
+
+
+
+
+/* =================================================================
+   CADASTRO  (o que você configura uma vez)
+================================================================= */
+const LINHAS = [
+  {id:'GEL',   nome:'Gel Sanitário'},
+  {id:'PAST',  nome:'Pastilha Sanitária'},
+  {id:'PEDRA', nome:'Pedra Sanitária'},
+  {id:'LIQ',   nome:'Líquidos'}
+];
+
+const EMBALAGENS = [
+  {id:'UN1',      nome:'Unidade (granel)',      fator:1},
+  {id:'CR04CX24', nome:'CR04 CX24 · 96 un',     fator:96},   // 24 cartuchos × 4 un
+  {id:'CR01CX48', nome:'CR01 CX48 · 48 un',     fator:48},
+  {id:'CR01CX72', nome:'CR01 CX72 · 72 un',     fator:72},
+  {id:'CX12', nome:'Caixa 12 un', fator:12},
+  {id:'CX24', nome:'Caixa 24 un', fator:24},
+  {id:'CX48', nome:'Caixa 48 un', fator:48},
+  {id:'FD06', nome:'Fardo 6 un',  fator:6}
+];
+
+const FRAGRANCIAS = [
+  {id:'MAR',nome:'Marine'},{id:'LAV',nome:'Lavanda'},
+  {id:'FLO',nome:'Floral'},{id:'CIT',nome:'Citrus'},{id:'EUC',nome:'Eucalipto'}
+];
+
+const PRODUTOS = [
+  {id:'GEL-TP',   nome:'Gel sanitário lavanda TP',        linha:'GEL'},    // granel
+  {id:'GEL-RAD',  nome:'Gel Radiante lavanda CR04',       linha:'GEL'},
+  {id:'GEL-QOD',  nome:'Gel Q-Odor lavanda CR01',         linha:'GEL'},
+  {id:'PAST-GRA', nome:'Pastilha floral · massa',         linha:'PAST'},   // corte
+  {id:'PED-CR',   nome:'Pedra Aplik limão CR01',          linha:'PEDRA'},
+  {id:'GEL-MAR',  nome:'Gel Marine',              linha:'GEL'},
+  {id:'GEL-LAV',  nome:'Gel Lavanda',             linha:'GEL'},
+  {id:'PAST-LAV', nome:'Pastilha Lavanda',        linha:'PAST'},
+  {id:'PAST-MAR', nome:'Pastilha Marine',         linha:'PAST'},
+  {id:'PED-FLO',  nome:'Pedra Floral',            linha:'PEDRA'},
+  {id:'PED-CIT',  nome:'Pedra Citrus',            linha:'PEDRA'},
+  {id:'LIQ-EUC',  nome:'Desinfetante Eucalipto',  linha:'LIQ'}
+];
+
+// PADRÃO = velocidade ideal + arranque + meta de setup. Versionado no banco real.
+const PADROES = {
+  // velocidade do POSTO × fator de ritmo (0,91). Nunca digitada.
+  'GEL-TP':   {vel:76.0*0.91, arranque:0, setupMeta:17},   // envase
+  'GEL-RAD':  {vel:16.0,      arranque:0, setupMeta:17},   // CR04 manual, 1 pessoa
+  'GEL-QOD':  {vel:63.5*0.91, arranque:0, setupMeta:17},   // CR01
+  'PAST-GRA': {vel:66.7*0.91, arranque:0, setupMeta:17},   // corte
+  'PED-CR':   {vel:51.8*0.91, arranque:0, setupMeta:17},   // encartuchadeira pedra
+  'GEL-MAR':  {vel:60, arranque:10, setupMeta:18},
+  'GEL-LAV':  {vel:56, arranque:10, setupMeta:18},
+  'PAST-LAV': {vel:63, arranque:10, setupMeta:15},
+  'PAST-MAR': {vel:63, arranque:10, setupMeta:15},
+  'PED-FLO':  {vel:45, arranque:8,  setupMeta:12},
+  'PED-CIT':  {vel:45, arranque:8,  setupMeta:12},
+  'LIQ-EUC':  {vel:60, arranque:12, setupMeta:20}
+};
+
+/* Taxonomia curta de propósito. Mais que isso e o operador clica sempre no primeiro.
+   'penaliza' = false para parada planejada, que não pode punir o OEE. */
+/* MOTIVOS POR POSTO. postos:[] = vale para todos.
+   "Falta de funcionário" só faz sentido nos postos manuais.
+   "Quebra da encartuchadeira" não existe no envase. */
+let MOTIVOS = [
+  {nome:'Falta de material',      cat:'Abastecimento', penaliza:true,  postos:[]},
+  {nome:'Falta de embalagem',     cat:'Abastecimento', penaliza:true,  postos:[]},
+  {nome:'Problema de qualidade',  cat:'Qualidade',     penaliza:true,  postos:[]},
+  {nome:'Limpeza de linha',       cat:'Planejada',     penaliza:false, postos:[]},
+  {nome:'Refeição / intervalo',   cat:'Planejada',     penaliza:false, postos:[]},
+
+  {nome:'Quebra do envase',       cat:'Manutenção',    penaliza:true,  postos:['GEL-ENV']},
+  {nome:'Falta de gel (pulmão)',  cat:'Abastecimento', penaliza:true,  postos:['GEL-CR01','GEL-CR04']},
+  {nome:'Quebra da encartuchadeira', cat:'Manutenção', penaliza:true,  postos:['GEL-CR01','PEDRA-CR']},
+  {nome:'Falta de funcionário',   cat:'Pessoas',       penaliza:true,  postos:['GEL-CR04','PAST-FP']},
+  {nome:'Troca de bobina',        cat:'Processo',      penaliza:true,  postos:['PAST-FP','PEDRA-FP']},
+  {nome:'Quebra do flowpack',     cat:'Manutenção',    penaliza:true,  postos:['PAST-FP','PEDRA-FP']},
+  {nome:'Atraso da extrusora',    cat:'Processo',      penaliza:true,  postos:['PAST-COR']},
+  {nome:'Ajuste da prensa',       cat:'Processo',      penaliza:true,  postos:['PEDRA-PR']}
+];
+const motivo = n => MOTIVOS.find(m => m.nome === n) || {cat:'—', penaliza:true};
+
+/* motivos válidos para um posto: os gerais + os específicos dele */
+const motivosDoPosto = pid =>
+  MOTIVOS.filter(m => !m.postos.length || m.postos.includes(pid));
+
+/* =================================================================
+   ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
+   EVENTOS é append-only. Nunca se apaga, nunca se edita.
+================================================================= */
+let AGORA = new Date(2026, 6, 14, 14, 12, 38);   // relógio da fábrica (simulado)
+const DIA_HOJE  = '14/07';
+const DIA_ONTEM = '13/07';
+const min = m => m * 60000;
+
+let TURNOS = [];
+let LOTES  = [];
+let EVENTOS = [];       // {ts, linha, lote, tipo, qtdEmb, qtdUn, motivo}
+let seqEvento = 0;
+
+function registrar(ev){
+  ev.id = ++seqEvento;
+  ev.ts = ev.ts ?? AGORA.getTime();
+  if(ev.tipo === 'contagem' || ev.tipo === 'refugo'){
+    const lote = LOTES.find(l => l.id === ev.lote);
+    const emb  = EMBALAGENS.find(e => e.id === lote.embalagem);
+    ev.qtdUn = (ev.qtdEmb || 0) * emb.fator;
+  }
+  EVENTOS.push(ev);
+}
+
+function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot}){
+  const p = PADROES[produtoId];
+  const lote = {
+    id: 'L' + (LOTES.length + 1),
+    numero: num,
+    produto: produtoId,
+    fragrancia: fragId,
+    linha: linhaId,
+    embalagem: embId,
+    turno: turnoId,
+    posto: postoId || (linhaId === 'GEL' ? 'GEL-ENV' : linhaId === 'PAST' ? 'PAST-FP'
+                     : linhaId === 'PEDRA' ? 'PEDRA-FP' : 'LIQ'),
+    dataProg: dataProg || DIA_HOJE,   // ordem de ontem não some à meia-noite
+    loteFab: loteFab || '',           // 1V046A — vem da programação, editável
+    seq:     seq || 1,                // batelada 1 de 6
+    seqTot:  seqTot || 1,
+    prevista: qtd,
+    // SNAPSHOT do padrão, congelado na criação
+    velIdeal: p.vel,
+    arranque: p.arranque,
+    setupMeta: p.setupMeta,
+    padraoMin: p.arranque + qtd / p.vel
+  };
+  LOTES.push(lote);
+  return lote;
+}
+
+/* =================================================================
+   PROJEÇÕES — o espelho em JS das views SQL.
+   Nada aqui é armazenado. Tudo é recalculado a cada segundo.
+================================================================= */
+const ativos = () => EVENTOS.filter(e => !e.anulado);
+
+function paradas(){                       // pareia parada_iniciada -> parada_finalizada
+  const out = [];
+  LINHAS.forEach(li => {
+    const evs = ativos()
+      .filter(e => e.linha === li.id && (e.tipo === 'parada_iniciada' || e.tipo === 'parada_finalizada'))
+      .sort((a,b) => a.ts - b.ts);
+    evs.forEach((e,i) => {
+      if(e.tipo !== 'parada_iniciada') return;
+      const fim = evs[i+1] && evs[i+1].tipo === 'parada_finalizada' ? evs[i+1].ts : null;
+      out.push({
+        linha:li.id, lote:e.lote, motivo:e.motivo,
+        cat: motivo(e.motivo).cat,
+        penaliza: motivo(e.motivo).penaliza,
+        inicio:e.ts, fim,
+        duracao: ((fim ?? AGORA.getTime()) - e.ts) / 60000,
+        aberta: !fim
+      });
+    });
+  });
+  return out;
+}
+
+function realizado(lote){                 // === vw_lote_realizado
+  const evs = ativos().filter(e => e.lote === lote.id);
+  const ini = evs.find(e => e.tipo === 'lote_iniciado');
+  if(!ini) return null;
+  const fim = evs.find(e => e.tipo === 'lote_finalizado');
+
+  const produzida = evs.filter(e => e.tipo === 'contagem').reduce((s,e) => s + e.qtdUn, 0);
+  const refugo    = evs.filter(e => e.tipo === 'refugo').reduce((s,e) => s + e.qtdUn, 0);
+
+  const tParado = paradas()
+    .filter(p => p.lote === lote.id)
+    .reduce((s,p) => s + p.duracao, 0);
+
+  const bruto   = ((fim ? fim.ts : AGORA.getTime()) - ini.ts) / 60000;
+  const liquido = bruto - tParado;
+
+  return {
+    lote, inicio:ini.ts, fim: fim ? fim.ts : null,
+    produzida, refugo,
+    bruto, tParado, liquido,
+    eficiencia: liquido > 0 ? lote.padraoMin / liquido : null,
+    delta: lote.padraoMin - liquido,          // (+) folga  (−) atraso
+    pct: Math.min(100, produzida / lote.prevista * 100),
+    finalizado: !!fim,
+    parado: paradas().some(p => p.lote === lote.id && p.aberta)
+  };
+}
+
+function velocidade(lote){                // === vw_velocidade_lote (janela dos últimos 10 min)
+  const cont = ativos()
+    .filter(e => e.lote === lote.id && e.tipo === 'contagem' && e.ts > AGORA.getTime() - min(10))
+    .sort((a,b) => a.ts - b.ts);
+  if(cont.length < 2) return 0;
+  const un = cont.slice(1).reduce((s,e) => s + e.qtdUn, 0);
+  const mins = (cont[cont.length-1].ts - cont[0].ts) / 60000;
+  return mins > 0 ? un / mins : 0;
+}
+
+function setups(){                        // === vw_setups  (deduzido, nunca apontado)
+  const out = [];
+  LINHAS.forEach(li => {
+    const done = LOTES.filter(l => l.linha === li.id)
+      .map(realizado).filter(r => r && r.finalizado)
+      .sort((a,b) => a.fim - b.fim);
+
+    done.forEach((r,i) => {
+      // próximo lote iniciado nesta linha depois do fim deste
+      const prox = LOTES.filter(l => l.linha === li.id)
+        .map(realizado).filter(x => x && x.inicio > r.fim)
+        .sort((a,b) => a.inicio - b.inicio)[0];
+      if(!prox) return;
+
+      const bruto = (prox.inicio - r.fim) / 60000;
+      // desconta paradas que caíram dentro do intervalo
+      const desc = paradas()
+        .filter(p => p.linha === li.id && p.inicio >= r.fim && p.inicio < prox.inicio)
+        .reduce((s,p) => s + p.duracao, 0);
+
+      out.push({
+        linha:li.id,
+        de:  r.lote.produto, para: prox.lote.produto,
+        deFrag: r.lote.fragrancia, paraFrag: prox.lote.fragrancia,
+        inicio:r.fim, fim:prox.inicio,
+        bruto, liquido: bruto - desc,
+        meta: prox.lote.setupMeta
+      });
+    });
+  });
+  return out.sort((a,b) => b.inicio - a.inicio);
+}
+
+function setupEmCurso(linhaId){           // setup rolando agora = terminou lote, não começou o próximo
+  const done = LOTES.filter(l => l.linha === linhaId)
+    .map(realizado).filter(r => r && r.finalizado)
+    .sort((a,b) => b.fim - a.fim)[0];
+  if(!done) return null;
+
+  const rodando = LOTES.filter(l => l.linha === linhaId)
+    .map(realizado).some(r => r && !r.finalizado);
+  if(rodando) return null;
+
+  const prox = LOTES.filter(l => l.linha === linhaId && !realizado(l))
+    .sort((a,b) => a.numero.localeCompare(b.numero))[0];
+
+  return {
+    decorrido: (AGORA.getTime() - done.fim) / 60000,
+    meta: prox ? prox.setupMeta : done.lote.setupMeta,
+    de: nomeProd(done.lote.produto),
+    para: prox ? nomeProd(prox.produto) : null,
+    proxLote: prox
+  };
+}
+
+/* --- estado consolidado de cada linha  === vw_linha_agora --- */
+function estadoLinha(linhaId){
+  const emAndamento = LOTES.filter(l => l.linha === linhaId)
+    .map(realizado).filter(r => r && !r.finalizado)[0];
+
+  if(emAndamento){
+    const s = emAndamento.parado ? 'parada'
+            : emAndamento.delta < -10 ? 'atraso'
+            : emAndamento.delta < 0   ? 'atencao' : 'ok';
+    const p = paradas().find(x => x.lote === emAndamento.lote.id && x.aberta);
+    return {tipo:'lote', s, r:emAndamento, vel:velocidade(emAndamento.lote), parada:p};
+  }
+
+  const su = setupEmCurso(linhaId);
+  if(su) return {tipo:'setup', s: su.decorrido > su.meta ? 'atraso' : 'setup', su};
+
+  const planejado = LOTES.filter(l => l.linha === linhaId && !realizado(l))[0];
+  return {tipo:'vazio', s:'sem_lote', planejado};
+}
+
+/* =================================================================
+   HELPERS
+================================================================= */
+const nomeProd  = id => (PRODUTOS.find(p => p.id === id) || {}).nome || '—';
+const nomeLinha = id => (LINHAS.find(l => l.id === id) || {}).nome || id;
+const nomeFrag  = id => (FRAGRANCIAS.find(f => f.id === id) || {}).nome || '—';
+const nomeEmb   = id => (EMBALAGENS.find(e => e.id === id) || {}).nome || '—';
+const fatorEmb  = id => (EMBALAGENS.find(e => e.id === id) || {fator:1}).fator;
+
+const hhmm = m => {
+  const sg = m < 0 ? '-' : ''; m = Math.abs(m);
+  return sg + String(Math.floor(m/60)).padStart(2,'0') + ':' + String(Math.floor(m%60)).padStart(2,'0');
+};
+const hora = ts => new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+const nf   = n => Math.round(n).toLocaleString('pt-BR');
+
+const ROT = {ok:'Produzindo',atencao:'Atenção',atraso:'Atrasado',setup:'Em setup',parada:'Parada',sem_lote:'Sem lote'};
+const COR = {ok:'var(--ok)',atencao:'var(--atencao)',atraso:'var(--atraso)',setup:'var(--azul)',parada:'var(--neutro)',sem_lote:'var(--neutro)'};
+
+function flash(msg){
+  const f = document.getElementById('flash');
+  f.textContent = msg; f.classList.add('on');
+  clearTimeout(f._t); f._t = setTimeout(() => f.classList.remove('on'), 1400);
+}
+
+/* =================================================================
+   SEED — meio de turno, para a tela já nascer viva
+================================================================= */
+(function seed(){
+  const hoje = d => new Date(2026,6,14,...d).getTime();
+
+  // turnos
+  LINHAS.forEach(li => TURNOS.push({
+    id:'T-'+li.id, linha:li.id, nome:'1º Turno',
+    inicio:hoje([6,0]), fim:hoje([15,48]),
+    intervalo:60, pessoas: li.id==='PAST'?8 : li.id==='GEL'?6 : li.id==='LIQ'?7 : 5
+  }));
+
+  const gerar = (lote, iniTs, fimTs, unProduzidas, refugoEmb) => {
+    registrar({tipo:'lote_iniciado', linha:lote.linha, lote:lote.id, ts:iniTs});
+    const fator = fatorEmb(lote.embalagem);
+    const caixas = Math.floor(unProduzidas / fator);
+    const dur = (fimTs ?? AGORA.getTime()) - iniTs - min(lote.arranque);
+    for(let i = 1; i <= caixas; i++){
+      registrar({tipo:'contagem', linha:lote.linha, lote:lote.id, qtdEmb:1,
+                 ts: iniTs + min(lote.arranque) + (dur * i / caixas)});
+    }
+    if(refugoEmb) registrar({tipo:'refugo', linha:lote.linha, lote:lote.id, qtdEmb:refugoEmb,
+                             ts: iniTs + min(lote.arranque) + dur*0.6});
+    if(fimTs) registrar({tipo:'lote_finalizado', linha:lote.linha, lote:lote.id, ts:fimTs});
+  };
+
+  // ---- GEL: um lote fechado + um rodando (gera um setup deduzido)
+  const g1 = criarLote({num:'000870', produtoId:'GEL-MAR', fragId:'MAR', embId:'CX24', qtd:5400, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR01'});
+  gerar(g1, hoje([6,15]), hoje([7,52]), 5400, 3);
+  registrar({tipo:'parada_iniciada',   linha:'GEL', lote:g1.id, motivo:'Falta de embalagem', ts:hoje([6,58])});
+  registrar({tipo:'parada_finalizada', linha:'GEL', lote:g1.id, ts:hoje([7,11])});
+
+  const g2 = criarLote({num:'000871', produtoId:'GEL-MAR', fragId:'MAR', embId:'CX24', qtd:6720, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR01'});
+  gerar(g2, hoje([8,14]), null, 4180, 0);   // rodando
+  registrar({tipo:'parada_iniciada',   linha:'GEL', lote:g2.id, motivo:'Ajuste de máquina', ts:hoje([10,30])});
+  registrar({tipo:'parada_finalizada', linha:'GEL', lote:g2.id, ts:hoje([10,39])});
+
+  // ---- PASTILHA: lote atrasado, rodando
+  const p1 = criarLote({num:'000452', produtoId:'PAST-LAV', fragId:'LAV', embId:'CX24', qtd:5040, linhaId:'PAST', turnoId:'T-PAST', postoId:'PAST-FP'});
+  gerar(p1, hoje([12,29]), null, 4560, 2);  // padrão 90 min, já em 103 -> vermelho
+
+  // ---- PEDRA: lote fechado + próximo programado -> SETUP EM CURSO
+  const pe1 = criarLote({num:'000508', produtoId:'PED-FLO', fragId:'FLO', embId:'CX12', qtd:3600, linhaId:'PEDRA', turnoId:'T-PEDRA', postoId:'PEDRA-FP'});
+  gerar(pe1, hoje([11,20]), hoje([13,50]), 3600, 5);
+  registrar({tipo:'parada_iniciada',   linha:'PEDRA', lote:pe1.id, motivo:'Falta de material', ts:hoje([12,40])});
+  registrar({tipo:'parada_finalizada', linha:'PEDRA', lote:pe1.id, ts:hoje([13,7])});
+  criarLote({num:'000509', produtoId:'PED-CIT', fragId:'CIT', embId:'CX12', qtd:3600, linhaId:'PEDRA', turnoId:'T-PEDRA', postoId:'PEDRA-FP'});
+  // nenhum lote_iniciado -> o gap desde 13:50 é setup, contando sozinho
+
+  // ---- GEL ENVASE: granel de lavanda rodando desde 05:40 (o "6 lavanda" da planilha)
+  const ge = criarLote({num:'025946', produtoId:'GEL-TP', fragId:'LAV', embId:'UN1',
+                        qtd:49200, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-ENV'});
+  gerar(ge, hoje([5,40]), null, 33800, 0);
+
+  // ---- GEL CR04: cartucho manual, 1 pessoa, 16 un/min — o posto que come o dia
+  const gc = criarLote({num:'001228', produtoId:'GEL-RAD', fragId:'LAV', embId:'CR04CX24',
+                        qtd:6624, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR04'});
+  gerar(gc, hoje([6,30]), null, 6528, 3);
+
+  // ---- PASTILHA CORTE
+  const pc = criarLote({num:'025964', produtoId:'PAST-GRA', fragId:'FLO', embId:'UN1',
+                        qtd:31968, linhaId:'PAST', turnoId:'T-PAST', postoId:'PAST-COR'});
+  gerar(pc, hoje([6,10]), null, 24444, 0);
+
+  // ---- PEDRA ENCARTUCHADEIRA
+  const pcr = criarLote({num:'025953', produtoId:'PED-CR', fragId:'CIT', embId:'CR01CX72',
+                         qtd:17064, linhaId:'PEDRA', turnoId:'T-PEDRA', postoId:'PEDRA-CR'});
+  gerar(pcr, hoje([9,15]), null, 12240, 42);
+
+  // ---- ORDEM DE ONTEM que não fechou: continua aberta hoje
+  criarLote({num:'025940', produtoId:'GEL-QOD', fragId:'LAV', embId:'CR01CX48',
+             qtd:9600, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR01', dataProg:DIA_ONTEM});
+
+  // ---- LÍQUIDOS: rodando, mas PARADO agora
+  const l1 = criarLote({num:'000238', produtoId:'LIQ-EUC', fragId:'EUC', embId:'FD06', qtd:8100, linhaId:'LIQ', turnoId:'T-LIQ', postoId:'LIQ'});
+  gerar(l1, hoje([13,11]), null, 3240, 0);
+  registrar({tipo:'parada_iniciada', linha:'LIQ', lote:l1.id, motivo:'Falta de material', ts:hoje([14,0])});
+})();
+
+/* =================================================================
+   RENDER — DASHBOARD
+================================================================= */
+function pintaDashboard(){
+  const estados = LINHAS.map(li => ({li, e: estadoLinha(li.id)}));
+
+  /* --- KPIs, todos derivados --- */
+  const fin = LOTES.map(realizado).filter(r => r && r.finalizado);
+  const rod = LOTES.map(realizado).filter(r => r && !r.finalizado);
+  const produzidoHoje = LOTES.map(realizado).filter(Boolean).reduce((s,r) => s + r.produzida, 0);
+  const refugoHoje    = LOTES.map(realizado).filter(Boolean).reduce((s,r) => s + r.refugo, 0);
+
+  const efic = fin.length
+    ? fin.reduce((s,r) => s + r.eficiencia, 0) / fin.length : 1;
+
+  const sps = setups();
+  const setupMedio = sps.length ? sps.reduce((s,x) => s + x.liquido, 0) / sps.length : 0;
+
+  const atrasados = estados.filter(x => x.e.s === 'atraso').length;
+
+  // OEE = D × P × Q  (com o refugo de embalagem que vocês registram)
+  const turnoIni = new Date(2026,6,14,6,0).getTime();
+  const dispPlan = (AGORA.getTime() - turnoIni)/60000 * LINHAS.length - 60*LINHAS.length;
+  const operando = LOTES.map(realizado).filter(Boolean).reduce((s,r) => s + Math.max(0,r.liquido), 0);
+  const D = Math.min(1, operando / dispPlan);
+  const padraoTot = LOTES.map(realizado).filter(Boolean).reduce((s,r) => s + r.lote.padraoMin, 0);
+  const P = Math.min(1.2, padraoTot / Math.max(1, operando));
+  const Q = produzidoHoje ? (produzidoHoje - refugoHoje) / produzidoHoje : 1;
+  const OEE = D * P * Q;
+
+  const cls = v => v >= .85 ? 'v-ok' : v >= .7 ? 'v-at' : 'v-ar';
+
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi destaque"><div class="val mono">${(OEE*100).toFixed(0)}<small>%</small></div><div class="rot">OEE do turno</div></div>
+    <div class="kpi"><div class="val mono">${nf(produzidoHoje)}</div><div class="rot">Produzido hoje</div></div>
+    <div class="kpi"><div class="val mono ${cls(efic)}">${(efic*100).toFixed(0)}<small>%</small></div><div class="rot">Eficiência</div></div>
+    <div class="kpi"><div class="val mono ${setupMedio > 18 ? 'v-ar' : 'v-ok'}">${setupMedio.toFixed(0)}<small>min</small></div><div class="rot">Setup médio</div></div>
+    <div class="kpi"><div class="val mono">${fin.length}</div><div class="rot">Lotes concluídos</div></div>
+    <div class="kpi"><div class="val mono">${rod.length}</div><div class="rot">Em produção</div></div>
+    <div class="kpi"><div class="val mono ${atrasados ? 'v-ar' : 'v-ok'}">${atrasados}</div><div class="rot">Linhas atrasadas</div></div>
+    <div class="kpi"><div class="val mono">${(Q*100).toFixed(1)}<small>%</small></div><div class="rot">Qualidade</div></div>`;
+
+  /* --- painel de exceção: gerado do estado, nunca escrito --- */
+  const alertas = [];
+  estados.forEach(({li,e}) => {
+    if(e.tipo === 'lote' && e.s === 'parada')
+      alertas.push({s:'parada', ln:li.nome,
+        tx:`Parada por ${e.parada.motivo.toLowerCase()}. Lote ${e.r.lote.numero} interrompido a ${e.r.pct.toFixed(0)}%.`,
+        mt:`${e.parada.duracao.toFixed(0)} min parada`});
+    else if(e.tipo === 'setup' && e.s === 'atraso')
+      alertas.push({s:'atraso', ln:li.nome,
+        tx:`Setup passou da meta. Troca ${e.su.de} → ${e.su.para || 'próximo lote'}.`,
+        mt:`+${(e.su.decorrido - e.su.meta).toFixed(0)} min vs meta`});
+    else if(e.s === 'atraso')
+      alertas.push({s:'atraso', ln:li.nome,
+        tx:`Lote ${e.r.lote.numero} passou do tempo padrão. Velocidade ${e.vel.toFixed(0)} un/min contra meta de ${e.r.lote.velIdeal}.`,
+        mt:`${e.r.delta.toFixed(0)} min`});
+    else if(e.s === 'atencao')
+      alertas.push({s:'atencao', ln:li.nome,
+        tx:`Ritmo caindo. No passo atual, o lote ${e.r.lote.numero} estoura o tempo padrão.`,
+        mt:`${e.r.delta.toFixed(0)} min`});
+    else if(e.tipo === 'vazio' && e.planejado)
+      alertas.push({s:'parada', ln:li.nome,
+        tx:`Linha ociosa. Lote ${e.planejado.numero} está programado e aguardando início.`,
+        mt:'aguardando'});
+  });
+
+  document.getElementById('qtd-alertas').textContent = alertas.length;
+  document.getElementById('qtd-alertas').className = 'contador' + (alertas.length ? '' : ' zero');
+  document.getElementById('alertas').innerHTML = alertas.length ? alertas.map(a => `
+    <div class="alerta">
+      <div class="selo" style="background:${COR[a.s]}"></div>
+      <div class="ln">${a.ln}</div>
+      <div class="tx">${a.tx}</div>
+      <div class="mt" style="color:${COR[a.s]}">${a.mt}</div>
+    </div>`).join('')
+    : `<div class="vazio"><b>Tudo dentro do padrão.</b>Nenhuma linha precisa de intervenção agora.</div>`;
+
+  /* --- QUADROS DE POSTO: caixas previstas × reais, hora a hora --- */
+  const quadroHTML = ({q, r}) => {
+    if(!r){
+      const plan = LOTES.filter(l => l.posto === q.id && !realizado(l))[0];
+      return `
+      <article class="lc" data-s="sem_lote">
+        <div class="lc-topo">
+          <div><div class="lc-nome">${q.nome}</div><div class="lc-prod">${nomeLinha(q.linha)}</div></div>
+          <div class="estado" data-s="sem_lote"><i class="ponto"></i>Sem lote</div>
+        </div>
+        <div class="metricas"><div class="m" style="grid-column:1/-1">
+          <div class="val">${plan ? 'Ordem ' + plan.numero + ' aguardando' : 'Nada programado'}</div>
+          <div class="rot">${plan ? nomeProd(plan.produto) : 'Suba a programação'}</div>
+        </div></div>
+        <div class="lc-rod"><span>Posto ocioso</span></div>
+      </article>`;
+    }
+
+    const lote  = r.lote;
+    const fator = fatorEmb(lote.embalagem);
+    const vel   = velDoQuadro(q, lote);
+
+    /* posto sem medição (Líquidos) — mostra o que dá, sem inventar padrão */
+    if(!vel){
+      const cx = Math.floor(r.produzida / fator);
+      return `
+      <article class="lc" data-s="parada">
+        <div class="lc-topo">
+          <div><div class="lc-nome">${q.nome}</div><div class="lc-prod">${nomeProd(lote.produto)}</div></div>
+          <div class="estado" data-s="parada"><i class="ponto"></i>Sem padrão</div>
+        </div>
+        <div class="caixas">
+          <div class="cx-bloco"><div class="cx-val mono">—</div><div class="rot">Deveria ter</div></div>
+          <div class="cx-bloco"><div class="cx-val mono">${nf(cx)}</div><div class="rot">Tem de fato</div></div>
+          <div class="cx-bloco"><div class="cx-val mono">?</div><div class="rot">sem medição</div></div>
+        </div>
+        <div class="lc-rod"><span>Velocidade deste posto ainda não foi cronometrada</span>
+          </div>
+      </article>`;
+    }
+
+    const cxPrevTot = Math.ceil(lote.prevista / fator);
+    const cxReal    = Math.floor(r.produzida / fator);
+
+    /* CAIXAS QUE DEVERIAM EXISTIR NESTE MOMENTO */
+    const cxDeviaTer = Math.floor(r.liquido * vel / fator);
+    const desvioCx   = cxReal - cxDeviaTer;
+
+    const s = r.parado ? 'parada'
+            : desvioCx < -Math.max(2, cxPrevTot*0.03) ? 'atraso'
+            : desvioCx < 0 ? 'atencao' : 'ok';
+
+    /* HORA A HORA — o quadro que a Paula acompanha */
+    const t0 = new Date(r.inicio); t0.setMinutes(0,0,0);
+    const linhasHora = [];
+    let acumPrev = 0, acumReal = 0;
+    for(let h = t0.getTime(); h < AGORA.getTime(); h += 3600000){
+      const fim = Math.min(h + 3600000, AGORA.getTime());
+      const ini = Math.max(h, r.inicio);
+      if(fim <= ini) continue;
+
+      const minutos = (fim - ini) / 60000;
+      const parouNaHora = paradas().filter(p => p.lote === lote.id)
+        .reduce((sum,p) => sum + Math.max(0,
+          (Math.min(p.fim ?? AGORA.getTime(), fim) - Math.max(p.inicio, ini)) / 60000), 0);
+
+      const prev = (minutos - parouNaHora) * vel / fator;
+      const real = ativos().filter(e => e.lote === lote.id && e.tipo === 'contagem'
+                    && e.ts >= ini && e.ts < fim)
+                    .reduce((sum,e) => sum + e.qtdEmb, 0);
+
+      acumPrev += prev; acumReal += real;
+      linhasHora.push({
+        hora: new Date(h).getHours(),
+        prev: Math.round(prev), real,
+        desvio: Math.round(acumReal - acumPrev),
+        parou: parouNaHora
+      });
+    }
+
+    return `
+    <article class="lc" data-s="${s}">
+      <div class="lc-topo">
+        <div>
+          <div class="lc-nome">${q.nome}</div>
+          <div class="lc-prod">${nomeLinha(q.linha)} · ${nomeProd(lote.produto)}</div>
+        </div>
+        <div class="estado" data-s="${s}"><i class="ponto"></i>${ROT[s]}</div>
+      </div>
+
+      <div class="lote-fab">
+        <label for="lf-${q.id}">Lote em andamento</label>
+        <input id="lf-${q.id}" data-lf="${q.id}" value="${LOTE_FAB[q.id] || ''}"
+               placeholder="1V046A" spellcheck="false">
+        <span class="rot">Ordem ${lote.numero}</span>
+      </div>
+
+      <!-- CAIXAS: deveria ter × tem -->
+      <div class="caixas">
+        <div class="cx-bloco">
+          <div class="cx-val mono">${nf(cxDeviaTer)}</div>
+          <div class="rot">Deveria ter</div>
+        </div>
+        <div class="cx-bloco">
+          <div class="cx-val mono ${desvioCx < 0 ? 'v-ar' : 'v-ok'}">${nf(cxReal)}</div>
+          <div class="rot">Tem de fato</div>
+        </div>
+        <div class="cx-bloco cx-desvio ${desvioCx < 0 ? 'ruim' : 'bom'}">
+          <div class="cx-val mono">${desvioCx >= 0 ? '+' : '−'}${nf(Math.abs(desvioCx))}</div>
+          <div class="rot">${desvioCx < 0 ? 'caixas atrás' : 'caixas à frente'}</div>
+        </div>
+      </div>
+
+      <div class="trilho-bloco" style="padding-top:12px">
+        <div class="trilho">
+          <div class="preenche" data-s="${s}" style="width:${Math.min(100, cxReal/cxPrevTot*100)}%"></div>
+          <div class="marca-padrao" style="left:${Math.min(100, cxDeviaTer/cxPrevTot*100)}%"
+               data-rot="RITMO"></div>
+        </div>
+        <div class="trilho-rod">
+          <span class="rot">${nf(cxReal)} de ${nf(cxPrevTot)} caixas · ${fator} un cada</span>
+          <span class="rot">${vel.toFixed(1)} un/min</span>
+        </div>
+      </div>
+
+      <!-- HORA A HORA -->
+      <table class="hh"><thead><tr>
+        <th>Hora</th><th class="num">Prev.</th><th class="num">Real</th><th class="num">Acum.</th>
+      </tr></thead><tbody>
+        ${linhasHora.slice(-5).map(l => `
+        <tr>
+          <td class="mono">${String(l.hora).padStart(2,'0')}h${l.parou > 1 ? ` <span class="tag" style="font-size:9px">−${l.parou.toFixed(0)}min</span>` : ''}</td>
+          <td class="num mono">${l.prev}</td>
+          <td class="num mono ${l.real < l.prev ? 'v-ar' : 'v-ok'}"><b>${l.real}</b></td>
+          <td class="num mono ${l.desvio < 0 ? 'v-ar' : 'v-ok'}">${l.desvio >= 0 ? '+' : '−'}${Math.abs(l.desvio)}</td>
+        </tr>`).join('')}
+      </tbody></table>
+
+      <div class="lc-rod">
+        ${r.parado
+          ? `<span>Parada: <b>${paradas().find(p => p.lote === lote.id && p.aberta).motivo}</b></span>`
+          : `<span>Embalagem <b>${nomeEmb(lote.embalagem)}</b></span>`}
+        
+      </div>
+    </article>`;
+  };
+
+  /* TODOS os postos, agrupados por linha. Posto ocioso também é informação. */
+  document.getElementById('grade').innerHTML = LINHAS.map(li => {
+    const qs = QUADROS.filter(q => q.linha === li.id).map(q => ({
+      q,
+      r: LOTES.filter(l => l.posto === q.id).map(realizado).filter(x => x && !x.finalizado)[0]
+    }));
+    if(!qs.length) return '';
+
+    const rodando = qs.filter(x => x.r && !x.r.parado).length;
+    const parados = qs.filter(x => x.r && x.r.parado).length;
+    const ociosos = qs.filter(x => !x.r).length;
+
+    return `
+    <section class="grupo">
+      <div class="grupo-cab">
+        <h2>${li.nome}</h2>
+        <div class="risco"></div>
+        <div class="resumo">${qs.length} postos · ${rodando} rodando${parados ? ` · ${parados} parado` : ''}${ociosos ? ` · ${ociosos} ocioso` : ''}</div>
+      </div>
+      <div class="grade-postos">
+        ${qs.map(quadroHTML).join('')}
+      </div>
+    </section>`;
+  }).join('');
+
+  
+
+  document.querySelectorAll('[data-lf]').forEach(i => {
+    i.oninput = () => { LOTE_FAB[i.dataset.lf] = i.value; };
+  });
+}
+
+/* =================================================================
+   RENDER — TURNOS
+================================================================= */
+function montaFormTurno(){
+  document.getElementById('t-linha').innerHTML =
+    AREAS.map(a => `<option value="${a.id}">${a.nome}</option>`).join('');
+}
+document.getElementById('btn-turno').onclick = () => {
+  const [hi,mi] = document.getElementById('t-ini').value.split(':').map(Number);
+  const [hf,mf] = document.getElementById('t-fim').value.split(':').map(Number);
+  let ini = new Date(2026,6,14,hi,mi).getTime();
+  let fim = new Date(2026,6,14,hf,mf).getTime();
+  if(fim <= ini) fim += min(24*60);            // turno que vira a meia-noite
+  TURNOS.push({
+    id:'T'+Date.now(), linha:document.getElementById('t-linha').value,
+    nome:document.getElementById('t-nome').value,
+    inicio:ini, fim,
+    intervalo:+document.getElementById('t-int').value,
+    pessoas:+document.getElementById('t-pes').value
+  });
+  flash('Turno registrado');
+  pintaTurnos();
+};
+
+function pintaTurnos(){
+  document.getElementById('tb-turnos').innerHTML = TURNOS.map(t => {
+    const disp = (t.fim - t.inicio)/60000 - t.intervalo;
+    const viraDia = new Date(t.fim).getDate() !== new Date(t.inicio).getDate();
+    return `<tr>
+      <td><b>${nomeLinha(t.linha)}</b></td>
+      <td>${t.nome}</td>
+      <td class="mono">${hora(t.inicio)} — ${hora(t.fim)} ${viraDia ? '<span class="tag azul">vira o dia</span>' : ''}</td>
+      <td class="num">${t.intervalo} min</td>
+      <td class="num"><b>${hhmm(disp)}</b></td>
+      <td class="num">${t.pessoas}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* =================================================================
+   QUADROS DO CHÃO DE FÁBRICA
+   A unidade de acompanhamento é o POSTO, não a linha.
+   O Gel tem 3: envase, CR01 e CR04 rodam em paralelo, com pulmão.
+   Cada linha da programação já é uma ordem num posto — não inventei nada.
+================================================================= */
+const QUADROS = [
+  {id:'GEL-ENV',   linha:'GEL',   nome:'Envase',                curto:'Envase', meta:76.0},
+  {id:'GEL-CR01',  linha:'GEL',   nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:63.5},
+  {id:'GEL-CR04',  linha:'GEL',   nome:'CR04 · Cartucho manual',curto:'CR04',   meta:null, manual:true},
+  {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:66.7},
+  {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:62.0},
+  {id:'PEDRA-PR',  linha:'PEDRA', nome:'Prensa',                curto:'Prensa', meta:50.0},
+  {id:'PEDRA-FP',  linha:'PEDRA', nome:'FP01 · Embaladora',     curto:'FP01',   meta:49.7},
+  {id:'PEDRA-CR',  linha:'PEDRA', nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:51.8},
+  {id:'LIQ',       linha:'LIQ',   nome:'Líquidos',              curto:'Líq.',   meta:null}
+];
+
+const quadro = id => QUADROS.find(q => q.id === id);
+
+/* Áreas de turno e de parada. O Gel é dividido: o envase trabalha em batelada,
+   a embalagem (CR01/CR04) é contínua e às vezes tem turno próprio (noite).
+   Por isso turnos e paradas do Gel se cadastram separados. */
+const AREAS = [
+  {id:'GEL-ENVASE', linha:'GEL',   nome:'Gel · Envase',     postos:['GEL-ENV']},
+  {id:'GEL-EMB',    linha:'GEL',   nome:'Gel · Embalagem',  postos:['GEL-CR01','GEL-CR04']},
+  {id:'PAST',       linha:'PAST',  nome:'Pastilha',         postos:['PAST-COR','PAST-FP']},
+  {id:'PEDRA',      linha:'PEDRA', nome:'Pedra',            postos:['PEDRA-PR','PEDRA-FP','PEDRA-CR','PEDRA-CX']},
+  {id:'LIQ',        linha:'LIQ',   nome:'Líquidos',         postos:['LIQ']}
+];
+
+/* Só o GRANEL trabalha em bateladas. A embalagem roda contínuo e consome
+   as bateladas do pulmão — por isso ela registra o lote CONSUMIDO, não o próprio. */
+const POSTOS_GRANEL = ['GEL-ENV','PAST-COR','PEDRA-PR'];
+const ehGranel = pid => POSTOS_GRANEL.includes(pid);
+
+/* tamanho típico da batelada, por linha (cadastro) */
+const TAM_BATELADA = {GEL:8200, PAST:8000, PEDRA:5700, LIQ:8000};
+
+/* tipos de setup — o TEMPO é medido, o TIPO é apontado */
+const TIPOS_SETUP = [
+  {id:'preparo', nome:'Preparo entre bateladas', meta:17},
+  {id:'limpeza', nome:'Limpeza + preparo (troca de fragrância)', meta:29},
+  {id:'troca',   nome:'Troca de produto / formato', meta:29},
+  {id:'outro',   nome:'Outro', meta:null}
+];
+const SETUP_INFO = {};   // {posto: {tipo, obs}} — o que a Paula classificou
+
+/* de qual posto é esta ordem? sai da própria rota do produto */
+function postoDaOrdem(rota, linha, um){
+  const ehCaixa = (um || '').toUpperCase() === 'CX';
+  if(linha === 'GEL'){
+    if(rota.codPrim === 'CR04')       return 'GEL-CR04';
+    if(rota.codPrim)                  return 'GEL-CR01';
+    return ehCaixa ? 'GEL-CR01' : 'GEL-ENV';
+  }
+  if(linha === 'PAST'){
+    if(rota.codPrim || ehCaixa)       return 'PAST-FP';
+    return 'PAST-COR';
+  }
+  if(linha === 'PEDRA'){
+    if(rota.codPrim && rota.codPrim.startsWith('CR')) return 'PEDRA-CR';
+    if(rota.codPrim && rota.codPrim.startsWith('FP')) return 'PEDRA-FP';
+    return ehCaixa ? 'PEDRA-CX' : 'PEDRA-PR';
+  }
+  return 'LIQ';
+}
+
+function velDoQuadro(q, lote){
+  const f = (FATOR_RITMO[q.linha] || {v:1}).v;
+  if(q.manual){
+    const pessoas = PESSOAS[q.id] || 1;
+    const un = lote ? fatorEmb(lote.embalagem) : 96;
+    return pessoas * CR_MAN_CXH * un / 60;
+  }
+  return q.meta ? q.meta * f : null;
+}
+
+/* quantas pessoas em cada posto manual — muda o padrão em tempo real */
+const PESSOAS = {'GEL-CR04':1, 'PAST-FP':2};
+
+/* lote de fabricação em andamento (1V046A...) — preenchido pela supervisora */
+const LOTE_FAB = {};
+
+/* =================================================================
+   PROGRAMAÇÃO — decodifica a rota escrita no nome do produto
+   Ex.: "Gel sanitário Radiante lavanda 7g CR04 SH06 CX24"
+        CR04 = cartucho de 4 · SH06 = shrink de 6 · CX24 = caixa de 24 cartuchos
+        un/caixa = 24 × 4 = 96
+================================================================= */
+
+/* ---------------------------------------------------------------
+   AS DUAS RÉGUAS
+
+   ideal  = velocidade cronometrada no posto (Paula/Priscila, 13/07)
+   fator  = quanto a linha REALMENTE entrega ao longo da batelada inteira
+   padrão = ideal × fator     ← é ESTA a régua do semáforo
+
+   O fator do Gel (0,91) não foi chutado: saiu de 49 bateladas reais.
+   74,3 × 0,91 = 67,6 ≈ 67,7 un/min observado.  A conta fecha sozinha.
+
+   O vão de 9% NÃO desaparece dentro do padrão — vira o indicador
+   "perda de ritmo", que é o que a supervisora ataca.
+--------------------------------------------------------------- */
+const FATOR_RITMO = {
+  GEL:   {v:0.91, fonte:'49 bateladas reais'},
+  PAST:  {v:0.91, fonte:'provisório — herdado do Gel, falta medir'},
+  PEDRA: {v:0.91, fonte:'provisório — herdado do Gel, falta medir'},
+  LIQ:   {v:0.91, fonte:'provisório'}
+};
+
+const POSTOS = {
+  GEL: {
+    granel: {nome:'Envase',          ideal:74.3},
+    fp:     null,
+    cr:     {nome:'Encartuchadeira', ideal:63.5},
+    setup:  {preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}
+  },
+  PAST: {
+    // corte: Paula 68,7 · Priscila 64,7 → média 66,7 (mantido a pedido)
+    granel: {nome:'Corte',           ideal:66.7},
+    fp:     {nome:'Embaladora FP01', ideal:62.0},
+    // CR03: cartucho manual, 2 pessoas. Declarado FORA do gargalo.
+    cr:     {nome:'Cartucho manual CR03', manual:true, restringe:false, pessoas:2},
+    setup:  {preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}
+  },
+  PEDRA: {
+    granel: {nome:'Prensa',          ideal:50.0},
+    fp:     {nome:'Embaladora FP01', ideal:49.7},
+    cr:     {nome:'Encartuchadeira', ideal:51.8},
+    setup:  {preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}
+  },
+  // Líquidos / Difusor / Limpador: sem medição ainda. Entram depois.
+  LIQ: {granel:null, fp:null, cr:null, setup:{preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}}
+};
+
+const CR_MAN_CXH = 10;         // CR04 — 10 caixas/hora por pessoa
+const CR_MANUAIS = ['CR04'];   // formatos montados à mão
+
+/* "1V046A/B/C/D/E/F" -> 6 bateladas.  "3F073.28/3V079.26" -> 2 bateladas.
+   O sufixo curto herda o prefixo do primeiro código. */
+function parseLotes(str){
+  if(!str || !str.trim()) return [];
+  const toks = str.trim().split('/').map(t => t.trim()).filter(Boolean);
+  if(!toks.length) return [];
+
+  const base = toks[0];
+  const out = [base];
+  for(let i = 1; i < toks.length; i++){
+    const t = toks[i];
+    if(t.length <= 2 && /^[A-Z0-9]{1,2}$/i.test(t))
+      out.push(base.slice(0, base.length - t.length) + t);   // 1V046A + B -> 1V046B
+    else
+      out.push(t);                                            // código inteiro diferente
+  }
+  return out;
+}
+
+function linhaDoProduto(desc){
+  const d = desc.toLowerCase();
+  if(d.includes('gel'))                                  return 'GEL';
+  if(d.includes('pastilha'))                             return 'PAST';
+  if(d.includes('pedra') || d.includes('naftalina'))     return 'PEDRA';
+  return 'LIQ';   // limpador, difusor, saponáceo, desinfetante
+}
+
+function decodificaRota(desc){
+  const prim = desc.match(/\b(CR|FP|FR)(\d{2})\b/i);
+  const shr  = desc.match(/\bSH(\d{2})\b/i);
+  const cx   = desc.match(/\bCX(\d{1,4})\b/i);
+  const dp   = desc.match(/\bDP(\d{1,4})\b/i);
+  const ct   = desc.match(/\bCT(\d{1,4})\b/i);
+
+  const etapas = [{tipo:'granel', cod:'UNID', rot:'Granel'}];
+  const avisos = [];
+
+  let fatorPrim = 1, codPrim = null, manual = false;
+  if(prim){
+    codPrim   = (prim[1] + prim[2]).toUpperCase();
+    fatorPrim = parseInt(prim[2], 10);          // CR04 → 4 · CR03 → 3 · CR01/FP01 → 1
+    manual    = CR_MANUAIS.includes(codPrim);
+    etapas.push({tipo:'prim', cod:codPrim,
+      rot: prim[1].toUpperCase() === 'FP' ? `Flowpack ${fatorPrim} un`
+         : `Cartucho ${fatorPrim} un${manual ? ' · manual' : ''}`});
+  }
+
+  if(shr) etapas.push({tipo:'shr', cod:'SH'+shr[1], rot:`Shrink ${parseInt(shr[1],10)} un`});
+
+  /* embalagem final. ATENÇÃO: o número do CX muda de significado conforme o que vem antes.
+     Depois de cartucho (CR) → conta CARTUCHOS.  Depois de cartela (CT) → conta UNIDADES. */
+  let unPorEmb = null, codEmb = null, conferir = false;
+
+  if(cx && ct){
+    // CT12 CX144 → 144 unidades = 12 cartelas de 12
+    const n = parseInt(cx[1], 10);
+    const porCartela = parseInt(ct[1], 10);
+    unPorEmb = n;
+    codEmb = `CT${ct[1]} CX${cx[1]}`;
+    etapas.push({tipo:'shr', cod:'CT'+ct[1], rot:`Cartela ${porCartela} un`});
+    etapas.push({tipo:'cx',  cod:'CX'+cx[1],
+      rot:`Caixa ${n} un = ${Math.round(n/porCartela)} cartelas`});
+    conferir = true;   // convenção ambígua: o cadastro trava o fator, não a string
+  }
+  else if(cx){
+    const n = parseInt(cx[1], 10);
+    codEmb = 'CX' + cx[1];
+    unPorEmb = n * fatorPrim;                    // CX conta PRIMÁRIAS
+    etapas.push({tipo:'cx', cod:codEmb, rot:`Caixa ${n} × ${fatorPrim} = ${unPorEmb} un`});
+  }
+  else if(dp){
+    unPorEmb = parseInt(dp[1], 10);              // DP72 = display com 72 unidades
+    codEmb = 'DP' + dp[1];
+    etapas.push({tipo:'cx', cod:codEmb, rot:`Display ${unPorEmb} un`});
+  }
+  else if(ct){
+    unPorEmb = parseInt(ct[1], 10);              // CT12 sozinho = cartela de 12
+    codEmb = 'CT' + ct[1];
+    etapas.push({tipo:'cx', cod:codEmb, rot:`Cartela ${unPorEmb} un`});
+  }
+
+  if(conferir) avisos.push('Convenção mista: CX conta unidades aqui, cartuchos nos outros. Confirme antes de subir — o fator fica gravado no cadastro.');
+
+  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos};
+}
+
+/* Gargalo = o posto mais lento da ROTA. Rotas reais:
+     GEL      Envase → [CR01  ou  CR04 manual]        (tampa não restringe)
+     PASTILHA Corte  → Embaladora FP01 → [CR03]
+     PEDRA    Prensa → Embaladora FP01 → [CR01]
+   O padrão do lote sai do gargalo — nunca de um número único de "velocidade da linha". */
+function gargaloDaRota(rota, linha, pessoasManual = 1){
+  const P = POSTOS[linha];
+  if(!P) return null;
+
+  const f = (FATOR_RITMO[linha] || {v:1}).v;    // padrão = ideal × fator de ritmo
+  const etapas = [];
+
+  if(P.granel) etapas.push({posto:P.granel.nome, ideal:P.granel.ideal, vel:P.granel.ideal * f});
+
+  // pedra e pastilha SEMPRE passam pelo flowpack, mesmo quando o nome só mostra CR
+  if(P.fp && (linha === 'PEDRA' || linha === 'PAST'))
+    etapas.push({posto:P.fp.nome, ideal:P.fp.ideal, vel:P.fp.ideal * f});
+
+  if(rota.codPrim){
+    if(rota.manual){
+      // CR04 do Gel: 10 cx/h por pessoa × unidades da caixa. RESTRINGE.
+      const ideal = rota.unPorEmb ? pessoasManual * CR_MAN_CXH * rota.unPorEmb / 60 : null;
+      if(ideal) etapas.push({posto:`${rota.codPrim} manual (${pessoasManual}p)`, ideal, vel:ideal * f});
+    }
+    else if(rota.codPrim.startsWith('CR')){
+      if(P.cr && P.cr.restringe === false)
+        etapas.push({posto:`${P.cr.nome} (${P.cr.pessoas}p)`, vel:null, naoRestringe:true});
+      else if(P.cr) etapas.push({posto:P.cr.nome, ideal:P.cr.ideal, vel:P.cr.ideal * f});
+      else return null;
+    }
+  }
+
+  const validas = etapas.filter(e => e.vel);
+  if(!validas.length) return null;
+
+  const g = validas.reduce((a,b) => a.vel <= b.vel ? a : b);
+  g.rota  = etapas;               // a cadeia inteira, inclusive o posto que não restringe
+  g.fator = f;
+  g.perda = g.ideal ? (1 - g.vel / g.ideal) : 0;   // a perda de ritmo, visível e nomeada
+  return g;
+}
+
+let PROG = [];   // programação lida, ainda não subida
+
+function lerProgramacao(){
+  const txt = document.getElementById('cola').value;
+  if(!txt.trim()){ flash('Cole a programação primeiro'); return; }
+  const linhas = txt.split(/\r?\n/);
+  let ignoradas = 0;
+
+  PROG = linhas.map(bruta => {
+    let col = bruta.split('\t').map(c => c.replace(/^"+|"+$/g,'').trim());
+    const iOrd = col.findIndex(c => /^(MTS|OP)\s*\d/i.test(c));
+    if(iOrd < 0){ ignoradas++; return null; }
+
+    const ordem = col[iOrd];
+    let desc = '';
+    for(let k = iOrd + 1; k < col.length; k++){
+      if(col[k] && !/^(UNID|CX|UN)$/i.test(col[k])){ desc = col[k]; break; }
+    }
+    if(desc && !/(CR|FP|FR)\d{2}|TP|batelada/i.test(desc)){
+      const resto = col.slice(iOrd + 1).filter(c => c && !/^(UNID|CX)$/i.test(c)).join(' ');
+      if(/(CR|FP|FR)\d{2}/i.test(resto)) desc = resto.replace(/\s+/g,' ').trim();
+    }
+    if(!desc){ ignoradas++; return null; }
+
+    const um = (col.find(c => /^(UNID|CX)$/i.test(c)) || 'UNID').toUpperCase();
+    const nums = col.filter(c => /^\d+([.,]\d+)?$/.test(c));
+    const qtdPlano = parseFloat((nums[0] || '0').replace(/\./g,'').replace(',','.')) || 0;
+
+    const rota  = decodificaRota(desc);
+    const linha = linhaDoProduto(desc);
+
+    const ehBatelada = /^\s*batelada\b/i.test(desc) ||
+                       (um === 'UNID' && qtdPlano > 0 && qtdPlano < 100);
+    let unidades, avisoUm = null;
+    if(um === 'CX' && rota.unPorEmb){
+      unidades = qtdPlano * rota.unPorEmb;
+    } else if(ehBatelada){
+      unidades = qtdPlano * (TAM_BATELADA[linha] || 8000);
+      avisoUm = 'Plano em BATELADAS (' + qtdPlano + '), convertido para ' + nf(unidades) + ' un.';
+    } else {
+      unidades = qtdPlano;
+    }
+
+    const g = gargaloDaRota(rota, linha);
+    const tempo = g ? unidades / g.vel : null;
+    if(avisoUm) rota.avisos.push(avisoUm);
+    if(!g) rota.avisos.push('Posto sem velocidade cronometrada — sem tempo padrão.');
+
+    const postoId = postoDaOrdem(rota, linha, um);
+    const lote = nums.length > 1 ? '' : (col.find(c => /^[0-9][A-Z]/.test(c)) || '');
+
+    return {ordem, desc, um, obs:'', linha, rota, qtdPlano, unidades, gargalo:g, tempo,
+            lote, defeito:'', postoId, bateladas: Math.max(1, parseLotes(lote).length)};
+  }).filter(Boolean);
+
+  pintaProgramacao();
+  document.getElementById('btn-subir').disabled = !PROG.length;
+  flash(PROG.length + ' ordens lidas · ' + ignoradas + ' linhas ignoradas');
+}
+
+function pintaProgramacao(){
+  const semPadrao = PROG.filter(p => !p.gargalo).length;
+  const totalUn   = PROG.reduce((s,p) => s + p.unidades, 0);
+  const totalMin  = PROG.reduce((s,p) => s + (p.tempo || 0), 0);
+  const avisos    = PROG.filter(p => p.rota.avisos.length).length;
+
+  document.getElementById('resumo-imp').innerHTML = PROG.length ? `
+    <div class="resumo-imp">
+      <div><div class="val mono">${PROG.length}</div><div class="rot">Ordens</div></div>
+      <div><div class="val mono">${nf(totalUn)}</div><div class="rot">Unidades planejadas</div></div>
+      <div><div class="val mono">${hhmm(totalMin)}</div><div class="rot">Tempo padrão total</div></div>
+      <div><div class="val mono ${semPadrao ? 'v-ar' : 'v-ok'}">${semPadrao}</div><div class="rot">Sem velocidade cadastrada</div></div>
+      <div><div class="val mono ${avisos ? 'v-at' : 'v-ok'}">${avisos}</div><div class="rot">Precisam de conferência</div></div>
+    </div>` : '';
+
+  document.getElementById('tb-prog').innerHTML = PROG.length ? PROG.map(p => `
+    <tr>
+      <td class="mono" style="font-size:11px">${p.ordem}</td>
+      <td>
+        <div style="font-weight:500">${p.desc}</div>
+        <div class="rota">
+          ${p.rota.etapas.map((e,i) => `${i ? '<span class="sep">→</span>' : ''}<span class="et ${e.tipo}">${e.rot}</span>`).join('')}
+        </div>
+        ${p.obs ? `<div class="rot" style="margin-top:4px">${p.obs}</div>` : ''}
+        ${p.rota.avisos.map(a => `<div class="alerta-parse">⚠ ${a}</div>`).join('')}
+      </td>
+      <td><span class="tag azul">${nomeLinha(p.linha)}</span></td>
+      <td class="num">${nf(p.qtdPlano)} <span class="rot">${p.um}</span>
+        ${p.bateladas > 1 ? `<div class="rot" style="margin-top:3px">${p.bateladas} bateladas de ${nf(Math.round(p.unidades/p.bateladas))} un</div>` : ''}</td>
+      <td class="num">${p.rota.unPorEmb ? nf(p.rota.unPorEmb) : '—'}</td>
+      <td class="num"><b>${nf(p.unidades)}</b></td>
+      <td class="num">${p.tempo ? `<b>${hhmm(p.tempo)}</b>` : '<span class="tag med">falta cadastrar</span>'}</td>
+      <td class="num">${p.gargalo
+        ? `<span class="tag ruim">${p.gargalo.posto}<br>${p.gargalo.vel.toFixed(1)} un/min</span>
+           <div class="rot" style="margin-top:5px;text-align:right">${
+             p.gargalo.rota.map(e => e.naoRestringe
+               ? `${e.posto.split(' ')[0]} livre`
+               : `${e.posto.split(' ')[0]} ${e.vel.toFixed(0)}`).join(' → ')}</div>`
+        : '<span class="tag med">posto sem medição</span>'}</td>
+      <td class="num">${p.defeito && p.defeito !== 'N/A' ? `<span class="tag ruim">${p.defeito}</span>` : '—'}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="9" style="text-align:center;color:var(--apagado);padding:26px">Cole a programação e clique em Ler.</td></tr>`;
+}
+
+document.getElementById('btn-ler').onclick = lerProgramacao;
+
+document.getElementById('cola').value = ["Ordem\tDescrição do produto\tU.M.\tObservação\tPlano", "\t1 Floral\t\t\t", "MTS026001 - 001\tGel sanitário floral TP\tUNID\t\t8100", "\t4 Limão\t\t\t", "MTS026002 - 001\tGel sanitário limão TP\tUNID\t\t34800", "MTS026003 - 001\tGel sanitário Triex floral 7g CR01 SH12 CX288\tCX\t\t18", "MTS026004 - 001\t\"\tGel sanitário Aplik floral 7g CR01 CX72\"\tCX\t\t41", "MTS026005 - 001\tGel sanitário Aplik limão 7g CR04 SH06 CX24\tCX\t25 LA + 25 LB + 3 LC\t53", "MTS026007 - 001\tGel sanitário Q-Odor limão 7g CR01 CX48\tCX\t\t352", "MTS026010 - 001\tBatelada pedra sanitária floral\tUNID\t\t0,5", "MTS026011 - 001\tPedra sanitária Aplik floral 25g FP01\tUNID\t\t2844", "MTS026018 - 001\tPedra sanitária Aplik mix 25g CT12 CX144\tCX\t\t79", "MTS026020 - 001\tPastilha sanitária lavanda FP01\tUNID\t\t31968", "MTS026021 - 001\tPastilha sanitária Bril Odor lavanda 10g CR03 CX36\tCX\t\t100", "MTS026023 - 001\tLimpador perfumado Aplik chá branco 120mL FR01 CX12\tCX\t\t116"].join('\n');
+lerProgramacao();
+
+document.getElementById('btn-subir').onclick = () => {
+  let n = 0;
+  PROG.filter(p => p.gargalo && p.unidades > 0).forEach((p, i) => {
+    // a importação alimenta o CADASTRO — não cria lote órfão
+    const pid = 'IMP' + Date.now().toString().slice(-5) + i;
+    PRODUTOS.push({id:pid, nome:p.desc, linha:p.linha});
+
+    const eid = 'EMB' + pid;
+    EMBALAGENS.push({
+      id:eid,
+      nome: p.rota.codEmb ? `${p.rota.codEmb} · ${p.rota.unPorEmb} un` : 'Unidade',
+      fator: p.rota.unPorEmb || 1
+    });
+
+    // padrão derivado do gargalo da rota — nunca digitado.
+    // meta de setup = o MELHOR preparo já registrado (17 min). É o alvo do SMED.
+    const S = POSTOS[p.linha].setup;
+    PADROES[pid] = {vel:p.gargalo.vel, arranque:0, setupMeta:S.melhor};
+
+    const postoId  = postoDaOrdem(p.rota, p.linha);
+    const numOrdem = p.ordem.replace(/\D/g,'').slice(-6) || String(LOTES.length + 1);
+
+    // GRANEL vira N bateladas. EMBALAGEM é uma ordem contínua.
+    // O código do lote nasce VAZIO — quem preenche é a Paula, no dia.
+    const nBat = ehGranel(postoId)
+      ? Math.max(1, Math.round(p.unidades / (TAM_BATELADA[p.linha] || 8000)))
+      : 1;
+    const qtdBat = Math.round(p.unidades / nBat);
+
+    for(let b = 0; b < nBat; b++){
+      criarLote({
+        num:       numOrdem,
+        produtoId: pid,
+        fragId:    null,
+        embId:     eid,
+        qtd:       qtdBat,
+        linhaId:   p.linha,
+        turnoId:  'T-' + p.linha,
+        postoId,
+        loteFab:   '',            // a Paula preenche
+        seq:       b + 1,
+        seqTot:    nBat
+      });
+      n++;
+    }
+  });
+  flash(`${n} ordens subiram para o chão de fábrica`);
+  pintaTudo();
+  irPara('dashboard');
+};
+
+/* planilha de exemplo — as linhas reais do dia 13/07 */
+document.getElementById('cola').value =
+`MTS025946 - 001\tGel sanitário lavanda TP\tUNID\t\t49200\t\t1V046A/B/C/D/E/F\t
+OP01228 - 001\tGel sanitário Radiante lavanda 7g CR04 SH06 CX24\tCX\t10 LA + 25 LB + 25 LC + 9 LD\t69\t73\t1V046A/B/C/D\t3 INT
+MTS025947 - 001\tGel sanitário Bril Odor lavanda 7g CR01 CX48\tCX\t\t95\t96\t1V046A\t38 INT
+MTS025948 - 001\tGel sanitário Q-Odor lavanda 7g CR01 CX48\tCX\t\t544\t\t1V046A/B/C/D/E\t30 INT
+MTS025949 - 001\tGel sanitário Aplik lavanda 7g CR01 SH12 CX72\tCX\t\t100\t\t1V046A/B/C/D/E/F\t
+MTS025950 - 001\tGel sanitário Aplik lavanda 7g CR01 CX72\tCX\t\t66\t\t1V046A/B/C/D/E/F\t
+MTS025952 - 001\tPedra sanitária Aplik limão 25g FP01\tUNID\t\t17064\t17208\t3L066A/B/C\tN/A
+MTS025953 - 001\tPedra sanitária Aplik limão 25g CR01 CX72\tCX\t\t237\t239\t3L066A/B/C\t42 INT
+MTS025962 - 001\tPedra sanitária Aplik mix 25g DP72\tCX\tNOITE (reporte 19 caixas)\t79\t\t3F073.28/3V079.26\t
+MTS025963 - 001\tPedra sanitária Aplik mix 25g CT12 CX144\tCX\tNOITE\t39\t\t3F073.28/3V079.26\t
+MTS025965 - 001\tPastilha sanitária Bril Odor floral 10g CR03 CX36\tCX\t\t13\t13\t2F019A\t1 INT
+MTS025966 - 001\tPastilha sanitária Aplik floral 10g CR03 CX24\tCX\túltimo lote cancelado - atraso extrusora\t425\t320\t2F019A/B/C\t14 INT`;
+
+lerProgramacao();
+
+/* =================================================================
+   RENDER — LINHA GEL (postos e gargalo)
+   Regra: postos em paralelo SOMAM. Postos em série, o menor MANDA.
+================================================================= */
+function pintaGel(){
+  const envase = +document.getElementById('i-envase').value || 0;
+  const cr01   = +document.getElementById('i-cr01').value   || 0;
+  const pes    = +document.getElementById('i-pes').value    || 0;
+  const cxh    = +document.getElementById('i-cxh').value    || 0;
+  const uncx   = +document.getElementById('i-uncx').value   || 0;
+
+  const cr04 = pes * cxh * uncx / 60;        // un/min
+  const embalagem = cr01 + cr04;             // paralelos: somam
+  const gargalo = Math.min(envase, embalagem);  // série: o menor manda
+  const gargaloEh = envase <= embalagem ? 'envase' : 'embalagem';
+
+  document.getElementById('cap-envase').innerHTML = `${envase}<small>un/min</small>`;
+  document.getElementById('cap-cr01').innerHTML   = `${cr01}<small>un/min</small>`;
+  document.getElementById('cap-cr04').innerHTML   = `${cr04.toFixed(1)}<small>un/min</small>`;
+  document.getElementById('conta-cr04').textContent =
+    `${pes} × ${cxh} cx/h × ${uncx} un ÷ 60`;
+
+  // quem é gargalo, quem tem folga
+  const envGargalo = gargaloEh === 'envase';
+  document.getElementById('p-envase').className = 'posto ' + (envGargalo ? 'gargalo' : 'folga');
+  document.getElementById('selo-envase').innerHTML = envGargalo
+    ? '<span class="selo-gargalo">Gargalo</span>'
+    : `<span class="selo-folga">${(100 - embalagem/envase*100).toFixed(0)}% ocioso</span>`;
+
+  document.getElementById('p-cr01').className = 'posto';
+  document.getElementById('selo-cr01').innerHTML =
+    `<span class="selo-folga">${embalagem ? (cr01/embalagem*100).toFixed(0) : 0}% da embalagem</span>`;
+
+  document.getElementById('p-cr04').className = 'posto ' + (!envGargalo ? 'gargalo' : '');
+  document.getElementById('selo-cr04').innerHTML = !envGargalo
+    ? '<span class="selo-gargalo">Restringe a linha</span>'
+    : `<span class="selo-folga">${embalagem ? (cr04/embalagem*100).toFixed(0) : 0}% da embalagem</span>`;
+
+  // pulmão: acumula livremente (confirmado). Se a embalagem for mais rápida, ele seca.
+  const sobra = envase - embalagem;
+  document.getElementById('acumulo').textContent = sobra > 0.5
+    ? `acumula +${nf(sobra * 60)} un/h`
+    : sobra < -0.5 ? `seca · embalagem espera` : 'equilibrado';
+
+  /* --- o veredito, em português --- */
+  const porPessoa = cxh * uncx / 60;                         // ganho de 1 pessoa na CR04
+  const pesMin    = porPessoa > 0 ? Math.max(0, Math.ceil((envase - cr01) / porPessoa)) : 0;
+  const folgaEmb  = embalagem - envase;                      // (+) embalagem sobra  (−) embalagem falta
+  const sobrando  = pes - pesMin;
+
+  document.getElementById('veredito').innerHTML = folgaEmb < -0.5 ? `
+    <div class="veredito mal">
+      <div class="ic">▲</div>
+      <p>O gargalo é a <b>embalagem</b>. A linha entrega <b>${embalagem.toFixed(0)} un/min</b>,
+      não os ${envase} do envase — e o envase fica <b>${(100 - embalagem/envase*100).toFixed(0)}% ocioso</b>,
+      enchendo pulmão e esperando.
+      <span class="acao">→ Com <b>${pesMin} ${pesMin === 1 ? 'pessoa' : 'pessoas'}</b> na CR04 a linha casa em ${envase} un/min.
+      Faltam ${pesMin - pes}.</span></p>
+    </div>`
+  : `
+    <div class="veredito ${sobrando > 0 ? 'mal' : 'bem'}">
+      <div class="ic">${sobrando > 0 ? '▲' : '■'}</div>
+      <p>O gargalo é o <b>envase</b>: <b>${envase} un/min</b>. É esse o teto da linha do Gel.
+      A embalagem aguenta ${embalagem.toFixed(0)} un/min — tem <b>${(folgaEmb/envase*100).toFixed(0)}% de folga</b> e fica esperando gel.
+      ${sobrando > 0
+        ? `<span class="acao">→ ${pes} pessoas na CR04, mas <b>${pesMin} já basta</b>. As outras ${sobrando} não produzem
+           nada a mais — só ociosidade. Pode realocar.</span>`
+        : `<span class="acao">→ ${pes} ${pes === 1 ? 'pessoa' : 'pessoas'} na CR04 é o suficiente.
+           <b>Colocar mais gente não aumenta a produção.</b> Para subir o teto do Gel só há um caminho: acelerar o envase.</span>`}
+      </p>
+    </div>`;
+
+  /* --- tabela de cenários: e se colocasse mais gente? --- */
+  const QTD = 6720;
+  const cen = [];
+  for(let n = 1; n <= 5; n++){
+    const c04 = n * cxh * uncx / 60;
+    const emb = cr01 + c04;
+    const g   = Math.min(envase, emb);
+    cen.push({
+      n, emb, g,
+      quem: envase <= emb ? 'Envase' : 'Embalagem',
+      min: QTD / g,
+      ocioEnvase: emb < envase ? (1 - emb/envase) : 0,   // envase espera embalagem
+      ocioEmb:    emb > envase ? (1 - envase/emb) : 0,   // embalagem espera gel
+      atual: n === pes
+    });
+  }
+  document.getElementById('tb-cenarios').innerHTML = cen.map(l => `
+    <tr style="${l.atual ? 'background:#f4f6fb' : ''}">
+      <td><b>${l.n} ${l.n === 1 ? 'pessoa' : 'pessoas'} na CR04</b>${l.atual ? ' <span class="tag azul">hoje</span>' : ''}</td>
+      <td class="num"><span class="tag ${l.quem === 'Embalagem' ? 'ruim' : 'med'}">${l.quem}</span></td>
+      <td class="num"><b>${l.g.toFixed(0)} un/min</b></td>
+      <td class="num">${hhmm(l.min)}</td>
+      <td class="num">${
+        l.ocioEnvase > 0.005 ? `<span class="tag ruim">envase ${(l.ocioEnvase*100).toFixed(0)}%</span>`
+      : l.ocioEmb    > 0.005 ? `<span class="tag med">embalagem ${(l.ocioEmb*100).toFixed(0)}%</span>`
+      : '<span class="tag ok">0%</span>'}</td>
+    </tr>`).join('');
+}
+
+['i-envase','i-cr01','i-pes','i-cxh','i-uncx'].forEach(id =>
+  document.getElementById(id).oninput = pintaGel);
+
+/* =================================================================
+   MICRO-PARADAS — detectadas pelo RITMO, sem ninguém apontar nada.
+
+   Se as caixas vêm a cada ~21 s e de repente passam 4 minutos entre
+   dois toques, aquele buraco é uma micro-parada. O sistema deduz.
+   É a soma desses buracos que explica os 8,9% de perda de ritmo.
+================================================================= */
+const LIMIAR_MICRO = 1.8;    // um gap acima de 1,8× o intervalo esperado é buraco
+
+function microParadas(lote){
+  const cont = ativos()
+    .filter(e => e.lote === lote.id && e.tipo === 'contagem')
+    .sort((a,b) => a.ts - b.ts);
+  if(cont.length < 3) return {buracos:[], perdidoMin:0, esperadoSeg:0};
+
+  const fator = fatorEmb(lote.embalagem);
+  // intervalo esperado entre caixas, no ritmo do padrão do lote
+  const esperadoSeg = fator / (lote.velIdeal / 60);
+
+  // paradas já declaradas não contam duas vezes
+  const declaradas = paradas().filter(p => p.lote === lote.id);
+
+  const buracos = [];
+  for(let i = 1; i < cont.length; i++){
+    const gapSeg = (cont[i].ts - cont[i-1].ts) / 1000;
+    if(gapSeg <= esperadoSeg * LIMIAR_MICRO) continue;
+
+    const dentroDeParada = declaradas.some(p =>
+      cont[i-1].ts < (p.fim ?? AGORA.getTime()) && cont[i].ts > p.inicio);
+    if(dentroDeParada) continue;
+
+    buracos.push({
+      inicio: cont[i-1].ts,
+      duracaoMin: gapSeg / 60,
+      perdidoMin: (gapSeg - esperadoSeg) / 60   // só o excesso é perda
+    });
+  }
+
+  return {
+    buracos,
+    perdidoMin: buracos.reduce((s,b) => s + b.perdidoMin, 0),
+    esperadoSeg
+  };
+}
+
+/* perda de ritmo do turno: quanto os buracos custaram, em minutos e em % */
+function perdaDeRitmo(){
+  let perdido = 0, liquido = 0, n = 0;
+  const todos = [];
+  LOTES.forEach(l => {
+    const r = realizado(l);
+    if(!r) return;
+    const mp = microParadas(l);
+    perdido += mp.perdidoMin;
+    liquido += Math.max(0, r.liquido);
+    n += mp.buracos.length;
+    mp.buracos.forEach(b => todos.push({...b, lote:l, linha:l.linha}));
+  });
+  return {
+    perdidoMin: perdido,
+    pct: liquido > 0 ? perdido / liquido : 0,
+    n,
+    buracos: todos.sort((a,b) => b.perdidoMin - a.perdidoMin)
+  };
+}
+
+/* A supervisora digita o ACUMULADO. O sistema grava só a diferença,
+   como evento. Append-only intacto, e o hora-a-hora sai de graça. */
+function apontarQuantidade(loteId, novoTotal){
+  const l = LOTES.find(x => x.id === loteId);
+  if(!l) return;
+  const r = realizado(l);
+  if(!r) return;
+
+  const fator = fatorEmb(l.embalagem);
+  const atual = Math.floor(r.produzida / fator);
+  const delta = Math.round(novoTotal) - atual;
+  if(!delta) return;
+
+  registrar({
+    tipo:'contagem', linha:l.linha, lote:l.id,
+    qtdEmb: delta,                     // negativo = correção da supervisora
+    origem:'supervisao'
+  });
+  flash(delta > 0 ? `+${delta} ${fator > 1 ? 'caixas' : 'un'}` : `Correção: ${delta}`);
+}
+
+/* =================================================================
+   RENDER — APONTAMENTO  (a tela da supervisora)
+   Um posto por linha da tela. Ela preenche o lote, conta as caixas
+   e registra a parada — sem abrir kiosk nenhum.
+================================================================= */
+function pintaApontamento(){
+  // se ela está digitando, não redesenha — senão o campo some no meio da palavra
+  const foco = document.activeElement;
+  if(foco && foco.closest && foco.closest('#apont') && foco.tagName === 'INPUT') return;
+
+  document.getElementById('apont').innerHTML = LINHAS.map(li => {
+    const qs = QUADROS.filter(q => q.linha === li.id);
+    if(!qs.length) return '';
+
+    return `
+    <section class="grupo">
+      <div class="grupo-cab"><h2>${li.nome}</h2><div class="risco"></div></div>
+      ${qs.map(q => {
+        // TODAS as ordens deste posto ainda abertas — inclusive as de ontem
+        const ordens = LOTES.filter(l => l.posto === q.id && l.status !== 'fim')
+          .map(l => ({l, r: realizado(l)}))
+          .filter(x => !x.r || !x.r.finalizado);
+
+        const rodando = ordens.find(x => x.r);
+        const par = rodando ? paradas().find(p => p.lote === rodando.l.id && p.aberta) : null;
+
+        const s = !rodando ? 'sem_lote'
+                : par ? 'parada'
+                : (() => {
+                    const vel = velDoQuadro(q, rodando.l);
+                    if(!vel) return 'sem_lote';
+                    const f = fatorEmb(rodando.l.embalagem);
+                    const dv = Math.floor(rodando.r.produzida/f) - Math.floor(rodando.r.liquido*vel/f);
+                    const tot = Math.ceil(rodando.l.prevista/f);
+                    return dv < -Math.max(2, tot*0.03) ? 'atraso' : dv < 0 ? 'atencao' : 'ok';
+                  })();
+
+        return `
+        <article class="ap" data-s="${s}">
+          <div class="ap-topo">
+            <div class="ap-nome">${q.nome}<span>${ROT[s]}</span></div>
+            <div class="rot" style="margin-left:auto">${ordens.length} ${ordens.length === 1 ? 'ordem aberta' : 'ordens abertas'}</div>
+          </div>
+
+          ${par ? `
+          <div class="ap-parado">
+            <span class="mono">${hhmm(par.duracao)}</span>
+            <span>parada por <b>${par.motivo}</b> desde ${hora(par.inicio)}</span>
+            <button class="bt retomar" data-ret="${rodando.l.id}" style="margin-left:auto">Retomar</button>
+          </div>` : ''}
+
+          ${(() => {
+            /* SETUP EM CURSO: nada rodando, mas já houve batelada fechada aqui.
+               O TEMPO é medido pelo sistema. O TIPO é apontado pela Paula. */
+            if(rodando) return '';
+            const ult = LOTES.filter(l => l.posto === q.id)
+              .map(realizado).filter(x => x && x.finalizado)
+              .sort((a,b) => b.fim - a.fim)[0];
+            if(!ult) return '';
+
+            const decor = (AGORA.getTime() - ult.fim) / 60000;
+            const info  = SETUP_INFO[q.id] || {};
+            const meta  = (TIPOS_SETUP.find(t => t.id === info.tipo) || {}).meta;
+            const estourou = meta && decor > meta;
+
+            return `
+            <div class="ap-setup">
+              <div>
+                <div class="crono ${estourou ? 'estourou' : ''}">${hhmm(decor)}</div>
+                <small>Setup em curso</small>
+              </div>
+
+              <div class="campo-s">
+                <label for="st-${q.id}">Tipo de setup</label>
+                <select id="st-${q.id}" data-st="${q.id}">
+                  <option value="">— classificar —</option>
+                  ${TIPOS_SETUP.map(t => `<option value="${t.id}" ${info.tipo === t.id ? 'selected' : ''}>${t.nome}</option>`).join('')}
+                </select>
+              </div>
+
+              <div class="campo-s">
+                <label for="so-${q.id}">O que aconteceu</label>
+                <input id="so-${q.id}" data-so="${q.id}" value="${info.obs || ''}"
+                       placeholder="ex.: troca de bico, faltou peça">
+              </div>
+
+              <div class="vs">
+                ${meta
+                  ? `meta ${meta} min · <b class="${estourou ? 'v-ar' : 'v-ok'}">${estourou ? '+' : '−'}${Math.abs(decor - meta).toFixed(0)} min</b>`
+                  : '<span class="rot">classifique para ver a meta</span>'}
+              </div>
+            </div>`;
+          })()}
+
+          ${ordens.length ? `
+          <table class="ord"><thead><tr>
+            <th>Ordem · batelada</th><th>Prog.</th><th>Produto</th><th>Lote</th>
+            <th class="num">Plano</th><th class="num">Deveria ter</th><th class="num">Produzido</th>
+            <th class="num">Δ</th><th></th>
+          </tr></thead><tbody>
+          ${ordens.map(({l, r}) => {
+            const f    = fatorEmb(l.embalagem);
+            const vel  = velDoQuadro(q, l);
+            const tot  = Math.ceil(l.prevista / f);
+            const feito = r ? Math.floor(r.produzida / f) : 0;
+            const devia = (r && vel) ? Math.floor(r.liquido * vel / f) : null;
+            const dv    = devia !== null ? feito - devia : null;
+            const un    = f > 1 ? 'cx' : 'un';
+            const ontem = l.dataProg !== DIA_HOJE;
+
+            const proxima = !r && ordens.filter(x => !x.r)[0] === ordens.find(x => x.l.id === l.id);
+
+            return `<tr class="${r ? 'rodando' : ''}">
+              <td class="mono"><b>${l.numero}</b>
+                ${l.seqTot > 1 ? `<span class="tag" style="font-size:9px">${l.seq}/${l.seqTot}</span>` : ''}
+                ${ontem ? `<span class="tag med" style="font-size:9px">${l.dataProg}</span>` : ''}
+                ${r ? '<span class="tag azul" style="font-size:9px">rodando</span>' : ''}
+                ${proxima ? '<span class="tag ok" style="font-size:9px">próxima</span>' : ''}
+              </td>
+              <td class="mono" style="font-size:11px;color:var(--apagado)">${l.dataProg || DIA_HOJE}</td>
+              <td style="font-size:13px">${nomeProd(l.produto)}
+                <span class="rot" style="display:block">${nomeEmb(l.embalagem)}</span></td>
+
+              <td><input class="in-lote${r && !l.loteFab ? ' pedindo' : ''}" data-lote="${l.id}"
+                         value="${l.loteFab}" placeholder="digite o lote"
+                         spellcheck="false" ${r && !l.loteFab ? 'data-foco="1"' : ''}></td>
+
+              <td class="num mono">${nf(tot)} <span class="rot">${un}</span></td>
+              <td class="num mono">${devia !== null ? nf(devia) : '—'}</td>
+
+              <td class="num">
+                ${r ? `<input class="in-qtd" type="number" min="0" data-qtd="${l.id}"
+                              value="${feito}" step="1">`
+                    : `<span class="rot">—</span>`}
+              </td>
+
+              <td class="num">${dv !== null
+                ? `<span class="tag ${dv < 0 ? 'ruim' : 'ok'}">${dv >= 0 ? '+' : '−'}${Math.abs(dv)}</span>`
+                : '—'}</td>
+
+              <td class="num">
+                ${l.status === 'cancelado'
+                  ? '<span class="tag ruim">cancelada</span>'
+                  : !r
+                    ? (proxima
+                        ? `<button class="bt iniciar" data-ini="${l.id}">Iniciar</button>
+                           <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`
+                        : `<span class="rot">na fila</span>
+                           <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso);padding:5px 10px;font-size:11px">Cancelar</button>`)
+                    : par
+                      ? ''
+                      : `<button class="bt parar" data-par="${l.id}">Parar</button>
+                         <button class="bt" data-fim="${l.id}">Finalizar e ir para a próxima</button>
+                         <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`}
+              </td>
+            </tr>`;
+          }).join('')}
+          </tbody></table>`
+          : `<div class="ap-vazio">Nenhuma ordem aberta neste posto. A Priscila sobe a programação.</div>`}
+        </article>`;
+      }).join('')}
+    </section>`;
+  }).join('');
+
+  /* ---- ações ---- */
+  const ev = (sel, fn) => document.querySelectorAll('#apont ' + sel).forEach(b =>
+    b.onclick = () => { fn(b); pintaTudo(); });
+
+  ev('[data-ini]', b => { const l = LOTES.find(x => x.id === b.dataset.ini);
+    registrar({tipo:'lote_iniciado', linha:l.linha, lote:l.id, origem:'supervisao'});
+    flash(`Ordem ${l.numero} iniciada`); });
+
+  ev('[data-fim]', b => {
+    const l = LOTES.find(x => x.id === b.dataset.fim);
+    registrar({tipo:'lote_finalizado', linha:l.linha, lote:l.id, origem:'supervisao'});
+    // NÃO inicia a próxima sozinho: o intervalo até o próximo início É o preparo,
+    // e é dele que sai o setup medido. Iniciar automático apagaria esse dado.
+    const prox = LOTES.filter(x => x.posto === l.posto && !realizado(x))[0];
+    flash(prox
+      ? `${l.loteFab || 'Lote'} fechado · preparo contando · próxima: ${prox.loteFab || prox.numero}`
+      : `${l.loteFab || 'Lote'} fechado · posto sem próxima ordem`);
+  });
+
+  ev('[data-ret]', b => { const l = LOTES.find(x => x.id === b.dataset.ret);
+    registrar({tipo:'parada_finalizada', linha:l.linha, lote:l.id, origem:'supervisao'});
+    flash('Produção retomada'); });
+
+  document.querySelectorAll('#apont [data-par]').forEach(b =>
+    b.onclick = () => abrirModalParada(b.dataset.par));
+
+  // CANCELAR ORDEM com justificativa obrigatória
+  document.querySelectorAll('#apont [data-cancelar]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.cancelar);
+    if(!l) return;
+    const motivo = prompt(`Cancelar a ordem ${l.numero}${l.loteFab ? ' · lote ' + l.loteFab : ''}.\n\nPor quê? (obrigatório)`);
+    if(motivo === null) return;                 // desistiu
+    if(!motivo.trim()){ flash('Justificativa obrigatória para cancelar'); return; }
+    registrar({tipo:'lote_cancelado', linha:l.linha, lote:l.id, origem:'supervisao', motivoCancel:motivo.trim()});
+    l.status = 'cancelado';
+    l.motivoCancel = motivo.trim();
+    flash(`Ordem ${l.numero} cancelada`);
+    pintaTudo();
+  });
+
+  // FOCO automático no campo de lote que está pedindo preenchimento
+  const pedindo = document.querySelector('#apont input[data-foco]');
+  if(pedindo && document.activeElement !== pedindo && !window._focoJaDado){
+    window._focoJaDado = true;
+    pedindo.focus();
+  }
+
+  // lote de fabricação: salva enquanto digita, sem perder o foco
+  document.querySelectorAll('#apont [data-lote]').forEach(i => i.oninput = () => {
+    const l = LOTES.find(x => x.id === i.dataset.lote);
+    if(l) l.loteFab = i.value;
+  });
+
+  // setup: tipo e observação
+  document.querySelectorAll('#apont [data-st]').forEach(sel => sel.onchange = () => {
+    const pid = sel.dataset.st;
+    SETUP_INFO[pid] = {...(SETUP_INFO[pid] || {}), tipo: sel.value};
+    const t = TIPOS_SETUP.find(x => x.id === sel.value);
+    flash(t ? `Setup: ${t.nome}${t.meta ? ` · meta ${t.meta} min` : ''}` : 'Setup sem classificação');
+    pintaTudo();
+  });
+  document.querySelectorAll('#apont [data-so]').forEach(i => i.oninput = () => {
+    const pid = i.dataset.so;
+    SETUP_INFO[pid] = {...(SETUP_INFO[pid] || {}), obs: i.value};
+  });
+
+  // quantidade: só grava ao sair do campo ou no Enter — senão apaga o que ela digita
+  document.querySelectorAll('#apont [data-qtd]').forEach(i => {
+    i.onblur    = () => apontarQuantidade(i.dataset.qtd, +i.value || 0) || pintaTudo();
+    i.onkeydown = e => { if(e.key === 'Enter') i.blur(); };
+    i.onfocus   = () => { i.dataset.edit = '1'; };
+  });
+}
+
+/* =================================================================
+   MODAL DE PARADA — motivos do posto. Manutenção pede texto livre.
+================================================================= */
+function abrirModalParada(loteId){
+  const m = document.getElementById('modal-parada');
+  const lote = loteId ? LOTES.find(x => x.id === loteId) : null;
+  const pid = lote ? lote.posto : null;
+  const lista = pid ? motivosDoPosto(pid) : MOTIVOS;
+
+  m.querySelector('h3').textContent = 'Por que parou?';
+  m.querySelector('p').textContent = lote
+    ? `${quadro(lote.posto) ? quadro(lote.posto).nome : ''} · ordem ${lote.numero}`
+    : 'Escolha o motivo';
+
+  document.getElementById('motivos').innerHTML = lista.map(mo => `
+    <button data-m="${mo.nome}" data-cat="${mo.cat}">
+      ${mo.nome}
+      <span style="display:block;font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:#7c8db0;margin-top:5px">
+        ${mo.cat}${mo.penaliza ? '' : ' · não penaliza OEE'}
+      </span>
+    </button>`).join('');
+
+  document.querySelectorAll('#motivos button').forEach(b => b.onclick = () => {
+    let alvo = lote;
+    if(!alvo){
+      // sem lote informado: pega o que estiver rodando no primeiro posto parável
+      alvo = LOTES.map(realizado).filter(r => r && !r.finalizado).map(r => r.lote)[0];
+    }
+    if(!alvo){ m.classList.remove('on'); return; }
+
+    let motivoNome = b.dataset.m;
+    let obs = null;
+
+    // MANUTENÇÃO / quebra: pede o motivo específico por texto
+    if(/manuten|quebra/i.test(b.dataset.cat) || /quebra/i.test(motivoNome)){
+      obs = prompt(`${motivoNome}\n\nQual o problema? (descreva para o histórico)`);
+      if(obs === null) return;   // desistiu, mantém modal aberto
+    }
+
+    registrar({tipo:'parada_iniciada', linha:alvo.linha, lote:alvo.id,
+               motivo:motivoNome, obsParada:(obs||'').trim(), origem:'supervisao'});
+    m.classList.remove('on');
+    flash('Parada: ' + motivoNome);
+    pintaTudo();
+  });
+
+  m.classList.add('on');
+}
+
+/* =================================================================
+   RENDER — CADASTRO DE MOTIVOS DE PARADA
+================================================================= */
+function pintaCadastros(){
+  const uso = {};
+  paradas().forEach(p => {
+    if(!uso[p.motivo]) uso[p.motivo] = {n:0, min:0};
+    uso[p.motivo].n += 1;
+    uso[p.motivo].min += p.duracao;
+  });
+
+  // o que importa não é o total, é quantos aparecem NA TELA de cada posto
+  const pior = QUADROS.map(q => ({q, n:motivosDoPosto(q.id).length}))
+                      .sort((a,b) => b.n - a.n)[0];
+  document.getElementById('qtd-motivos').textContent =
+    `${MOTIVOS.length} cadastrados · até ${pior.n} por posto${pior.n > 8 ? ' · acima do recomendado' : ''}`;
+
+  document.getElementById('tb-motivos').innerHTML = MOTIVOS.map((m,i) => {
+    const u = uso[m.nome] || {n:0, min:0};
+    return `<tr>
+      <td><b>${m.nome}</b></td>
+      <td><span class="tag ${m.penaliza ? '' : 'azul'}">${m.cat}</span></td>
+      <td>${m.postos.length
+        ? m.postos.map(pid => `<span class="tag" style="font-size:9px">${quadro(pid) ? quadro(pid).linha + ' ' + quadro(pid).curto : pid}</span>`).join(' ')
+        : '<span class="rot">todos os postos</span>'}</td>
+      <td><span class="tag ${m.penaliza ? 'ruim' : 'ok'}">${m.penaliza ? 'penaliza' : 'não penaliza'}</span></td>
+      <td class="num">${u.n || '—'}</td>
+      <td class="num">${u.min ? u.min.toFixed(0) + ' min' : '—'}</td>
+      <td class="num">${u.n ? '<span class="rot">em uso</span>'
+        : `<button class="bt" data-del="${i}" style="padding:5px 11px;font-size:12px">Remover</button>`}</td>
+    </tr>`;
+  }).join('');
+
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    MOTIVOS.splice(+b.dataset.del, 1);
+    flash('Motivo removido');
+    pintaTudo();
+  });
+}
+
+document.getElementById('btn-motivo').onclick = () => {
+  const nome = document.getElementById('mp-nome').value.trim();
+  if(!nome){ flash('Escreva o motivo'); return; }
+  if(MOTIVOS.some(m => m.nome.toLowerCase() === nome.toLowerCase())){ flash('Esse motivo já existe'); return; }
+  const pid = document.getElementById('mp-posto').value;
+  MOTIVOS.push({
+    nome,
+    cat: document.getElementById('mp-cat').value,
+    penaliza: document.getElementById('mp-pen').value === '1',
+    postos: pid === 'TODOS' ? [] : [pid]
+  });
+  document.getElementById('mp-nome').value = '';
+  flash(`Motivo "${nome}" cadastrado`);
+  pintaTudo();
+};
+
+/* =================================================================
+   RENDER — RESULTADOS POR LINHA
+   Nada é armazenado. Tudo sai dos eventos, ao vivo.
+================================================================= */
+let linhaResultado = 'GEL';
+
+function pintaResultados(){
+  document.getElementById('r-abas').innerHTML = LINHAS.map(li =>
+    `<button data-r="${li.id}" aria-pressed="${li.id === linhaResultado}">${li.nome}</button>`).join('');
+  document.querySelectorAll('#r-abas button').forEach(b =>
+    b.onclick = () => { linhaResultado = b.dataset.r; pintaResultados(); });
+
+  const L = linhaResultado;
+  const t = TURNOS.find(x => x.linha === L);
+
+  const lotes = LOTES.filter(l => l.linha === L).map(realizado).filter(Boolean);
+  const fin   = lotes.filter(r => r.finalizado);
+  const sps   = setups().filter(s => s.linha === L);
+  const prds  = paradas().filter(p => p.linha === L);
+  const meta  = POSTOS[L] && POSTOS[L].granel ? POSTOS[L].granel.ideal : null;
+  const fator = (FATOR_RITMO[L] || {}).v;
+
+  if(!lotes.length){
+    document.getElementById('r-corpo').innerHTML =
+      `<div class="bloco"><div class="vazio"><b>Nenhum lote nesta linha ainda.</b>Suba a programação e inicie um lote no kiosk.</div></div>`;
+    return;
+  }
+
+  /* --- OEE do turno, para esta linha --- */
+  const planejado = t ? (t.fim - t.inicio)/60000 - t.intervalo : 0;
+  const decorrido = t ? Math.min(planejado, (AGORA.getTime() - t.inicio)/60000 - t.intervalo) : 0;
+  const operando  = lotes.reduce((s,r) => s + Math.max(0, r.liquido), 0);
+  const produzido = lotes.reduce((s,r) => s + r.produzida, 0);
+  const refugo    = lotes.reduce((s,r) => s + r.refugo, 0);
+  const padraoTot = lotes.reduce((s,r) => s + r.lote.padraoMin, 0);
+  const parado    = prds.reduce((s,p) => s + p.duracao, 0);
+
+  const D = decorrido > 0 ? Math.min(1, operando / decorrido) : 0;
+  const P = operando  > 0 ? Math.min(1.3, padraoTot / operando) : 0;
+  const Q = produzido > 0 ? (produzido - refugo) / produzido : 1;
+  const OEE = D * P * Q;
+
+  /* --- perda de ritmo desta linha --- */
+  let perdaMin = 0, nBur = 0;
+  LOTES.filter(l => l.linha === L).forEach(l => {
+    const mp = microParadas(l);
+    perdaMin += mp.perdidoMin; nBur += mp.buracos.length;
+  });
+  const velReal = operando > 0 ? produzido / operando : 0;
+
+  const setupMedio = sps.length ? sps.reduce((s,x) => s + x.liquido, 0) / sps.length : 0;
+  const setupMeta  = POSTOS[L].setup.melhor;
+  const efic = fin.length ? fin.reduce((s,r) => s + r.eficiencia, 0) / fin.length : null;
+
+  const cor = v => v >= .85 ? 'v-ok' : v >= .65 ? 'v-at' : 'v-ar';
+
+  /* --- árvore de perdas, se a linha tem meta cadastrada --- */
+  const arvore = meta ? `
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">Árvore de perdas · ${POSTOS[L].granel.nome}</span></div>
+      <div class="pareto">
+        <div class="pl">
+          <div class="nm">Meta de engenharia<span>o que a máquina deveria fazer</span></div>
+          <div class="pbar"><i style="width:100%;background:var(--neutro)"></i></div>
+          <div class="vl"><b>${meta.toFixed(1)}</b><span>un/min</span></div>
+        </div>
+        <div class="pl">
+          <div class="nm">Padrão homologado<span>meta × fator de ritmo ${fator}</span></div>
+          <div class="pbar"><i style="width:${meta*fator/meta*100}%;background:var(--azul)"></i></div>
+          <div class="vl"><b>${(meta*fator).toFixed(1)}</b><span>un/min</span></div>
+        </div>
+        <div class="pl">
+          <div class="nm">Realizado hoje<span>produzido ÷ tempo líquido</span></div>
+          <div class="pbar"><i style="width:${Math.min(100, velReal/meta*100)}%;background:${velReal >= meta*fator ? 'var(--ok)' : 'var(--atraso)'}"></i></div>
+          <div class="vl"><b class="${velReal >= meta*fator ? 'v-ok' : 'v-ar'}">${velReal.toFixed(1)}</b><span>${((velReal/meta-1)*100).toFixed(1)}% vs meta</span></div>
+        </div>
+      </div>
+    </div>` : '';
+
+  document.getElementById('r-corpo').innerHTML = `
+    <div class="kpis">
+      <div class="kpi destaque"><div class="val mono">${(OEE*100).toFixed(0)}<small>%</small></div><div class="rot">OEE</div></div>
+      <div class="kpi"><div class="val mono ${cor(D)}">${(D*100).toFixed(0)}<small>%</small></div><div class="rot">Disponibilidade</div></div>
+      <div class="kpi"><div class="val mono ${cor(P)}">${(P*100).toFixed(0)}<small>%</small></div><div class="rot">Performance</div></div>
+      <div class="kpi"><div class="val mono ${cor(Q)}">${(Q*100).toFixed(1)}<small>%</small></div><div class="rot">Qualidade</div></div>
+      <div class="kpi"><div class="val mono">${nf(produzido)}</div><div class="rot">Produzido</div></div>
+      <div class="kpi"><div class="val mono ${perdaMin > 5 ? 'v-ar' : 'v-ok'}">${perdaMin.toFixed(0)}<small>min</small></div><div class="rot">Perda de ritmo · ${nBur} buracos</div></div>
+      <div class="kpi"><div class="val mono ${parado > 0 ? 'v-at' : 'v-ok'}">${parado.toFixed(0)}<small>min</small></div><div class="rot">Parado · ${prds.length}×</div></div>
+      <div class="kpi"><div class="val mono ${setupMedio > setupMeta ? 'v-ar' : 'v-ok'}">${setupMedio ? setupMedio.toFixed(0) : '—'}<small>min</small></div><div class="rot">Setup · meta ${setupMeta}</div></div>
+    </div>
+
+    ${arvore}
+
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">Lotes do turno</span>
+        <span class="rot" style="margin-left:auto">${fin.length} fechados · ${lotes.length - fin.length} em curso</span></div>
+      <table><thead><tr>
+        <th>Lote</th><th>Produto</th><th class="num">Padrão</th><th class="num">Real</th>
+        <th class="num">Parada</th><th class="num">Δ</th><th class="num">un/min</th><th class="num">Eficiência</th>
+      </tr></thead><tbody>
+        ${lotes.sort((a,b) => b.inicio - a.inicio).map(r => `
+        <tr>
+          <td class="mono"><b>${r.lote.numero}</b>${r.finalizado ? '' : ' <span class="tag azul">rodando</span>'}</td>
+          <td style="font-size:13px">${nomeProd(r.lote.produto)}</td>
+          <td class="num">${hhmm(r.lote.padraoMin)}</td>
+          <td class="num">${hhmm(r.liquido)}</td>
+          <td class="num">${r.tParado > 0 ? r.tParado.toFixed(0)+' min' : '—'}</td>
+          <td class="num ${r.delta < 0 ? 'v-ar':'v-ok'}"><b>${r.delta >= 0 ? '+' : '−'}${Math.abs(r.delta).toFixed(0)}</b></td>
+          <td class="num">${r.liquido > 0 ? (r.produzida/r.liquido).toFixed(1) : '—'}</td>
+          <td class="num"><span class="tag ${r.eficiencia >= 1 ? 'ok' : r.eficiencia >= .9 ? 'med' : 'ruim'}">${r.eficiencia ? (r.eficiencia*100).toFixed(0)+'%' : '—'}</span></td>
+        </tr>`).join('')}
+      </tbody></table>
+    </div>
+
+    <div class="bloco">
+      <div class="bloco-topo"><span class="titulo-secao">Setups desta linha</span>
+        <span class="rot" style="margin-left:auto">deduzidos · meta ${setupMeta} min</span></div>
+      <table><thead><tr>
+        <th>Transição</th><th class="mono">Janela</th>
+        <th class="num">Bruto</th><th class="num">Líquido</th><th class="num">vs Meta</th>
+      </tr></thead><tbody>
+        ${sps.length ? sps.map(s => {
+          const vs = s.liquido - setupMeta;
+          return `<tr>
+            <td style="font-size:13px">${nomeProd(s.de)} → ${nomeProd(s.para)}</td>
+            <td class="mono">${hora(s.inicio)} — ${hora(s.fim)}</td>
+            <td class="num">${s.bruto.toFixed(0)} min</td>
+            <td class="num"><b>${s.liquido.toFixed(0)} min</b></td>
+            <td class="num"><span class="tag ${vs > 0 ? 'ruim' : 'ok'}">${vs >= 0 ? '+' : '−'}${Math.abs(vs).toFixed(0)} min</span></td>
+          </tr>`;
+        }).join('')
+        : `<tr><td colspan="5" style="text-align:center;color:var(--apagado);padding:22px">Nenhum setup ainda nesta linha.</td></tr>`}
+      </tbody></table>
+    </div>`;
+}
+
+/* =================================================================
+   RENDER — PARADAS
+================================================================= */
+function pintaParadas(){
+  const todas = paradas().sort((a,b) => b.inicio - a.inicio);
+
+  /* --- perda de ritmo: os buracos invisíveis --- */
+  const pr = perdaDeRitmo();
+  document.getElementById('micro').innerHTML = pr.n ? `
+    <div class="pl" style="grid-template-columns:1fr;border-bottom:1px solid #f1f3f7;padding:16px 17px">
+      <p style="font-size:14px;color:#334155;line-height:1.55">
+        <b>${pr.perdidoMin.toFixed(0)} minutos</b> evaporaram em <b>${pr.n} micro-paradas</b> —
+        buracos no ritmo da contagem, pequenos demais para alguém apontar,
+        grandes o suficiente para custar <b>${(pr.pct*100).toFixed(1)}%</b> do tempo de produção.
+        <span style="display:block;font-family:'DM Mono',monospace;font-size:11px;color:var(--apagado);margin-top:7px;letter-spacing:.03em">
+          Meta 76 → máquina 74,3 (−2,2% de velocidade) → real (−ritmo). É este segundo degrau.
+        </span>
+      </p>
+    </div>
+    ${pr.buracos.slice(0,6).map(b => `
+    <div class="pl">
+      <div class="nm">${nomeLinha(b.linha)}<span>lote ${b.lote.numero} · ${hora(b.inicio)}</span></div>
+      <div class="pbar"><i style="width:${Math.min(100, b.perdidoMin / pr.buracos[0].perdidoMin * 100)}%;background:var(--atencao)"></i></div>
+      <div class="vl"><b>${b.perdidoMin.toFixed(1)} min</b><span>parou ${b.duracaoMin.toFixed(1)} min</span></div>
+    </div>`).join('')}`
+    : `<div class="vazio"><b>Ritmo estável.</b>Nenhum buraco na contagem até agora.</div>`;
+
+  /* --- paradas acontecendo agora --- */
+  const abertas = todas.filter(p => p.aberta);
+  document.getElementById('em-curso').innerHTML = abertas.length ? abertas.map(p => {
+    const lt = LOTES.find(l => l.id === p.lote);
+    return `<div class="pc">
+      <div class="rot">${nomeLinha(p.linha)} · parada agora</div>
+      <div class="crono">${hhmm(p.duracao)}</div>
+      <div class="mot">${p.motivo}</div>
+      <div class="ctx">Lote ${lt ? lt.numero : '—'} · ${lt ? nomeProd(lt.produto) : ''} · parou às ${hora(p.inicio)}</div>
+      <span class="tag ${p.penaliza ? 'ruim' : ''} cat">${p.cat}${p.penaliza ? '' : ' · não penaliza OEE'}</span>
+    </div>`;
+  }).join('')
+   : `<div class="pc" style="border-left-color:var(--ok)">
+        <div class="rot">Agora</div>
+        <div class="mot" style="color:var(--ok)">Nenhuma linha parada</div>
+        <div class="ctx">Todas as linhas ativas estão rodando ou em setup.</div>
+      </div>`;
+
+  /* --- Pareto: qual motivo mais custa tempo --- */
+  const porMotivo = {};
+  todas.forEach(p => {
+    if(!porMotivo[p.motivo]) porMotivo[p.motivo] = {min:0, n:0, cat:p.cat, penaliza:p.penaliza};
+    porMotivo[p.motivo].min += p.duracao;
+    porMotivo[p.motivo].n   += 1;
+  });
+
+  const ranking = Object.entries(porMotivo)
+    .map(([nome,v]) => ({nome, ...v}))
+    .sort((a,b) => b.min - a.min);
+
+  const totalMin = ranking.reduce((s,r) => s + r.min, 0);
+  const maior    = ranking[0] ? ranking[0].min : 1;
+
+  document.getElementById('total-parado').textContent =
+    totalMin > 0 ? `${totalMin.toFixed(0)} min perdidos · ${todas.length} paradas` : 'sem paradas';
+
+  document.getElementById('pareto').innerHTML = ranking.length ? ranking.map(r => `
+    <div class="pl">
+      <div class="nm">${r.nome}<span>${r.cat}${r.penaliza ? '' : ' · planejada'}</span></div>
+      <div class="pbar">
+        <i style="width:${r.min / maior * 100}%;background:${r.penaliza ? 'var(--atraso)' : 'var(--neutro)'}"></i>
+      </div>
+      <div class="vl">
+        <b>${r.min.toFixed(0)} min</b>
+        <span>${r.n} ${r.n === 1 ? 'parada' : 'paradas'} · ${(r.min / totalMin * 100).toFixed(0)}%</span>
+      </div>
+    </div>`).join('')
+   : `<div class="vazio"><b>Nenhuma parada registrada.</b>Quando o operador parar a linha, o motivo aparece aqui.</div>`;
+
+  /* --- a frase que a supervisora precisa ler --- */
+  const top = ranking.filter(r => r.penaliza)[0];
+  document.getElementById('gargalo').innerHTML = top && totalMin > 0 ? `
+    <div class="gargalo">
+      <div class="ic">▲</div>
+      <p><b>${top.nome}</b> é o maior ladrão de tempo do turno: <b>${top.min.toFixed(0)} minutos</b>
+      em ${top.n} ${top.n === 1 ? 'ocorrência' : 'ocorrências'}, ${(top.min / totalMin * 100).toFixed(0)}% de todo o tempo parado.
+      Atacar só esse motivo devolve mais tempo do que otimizar qualquer máquina.</p>
+    </div>` : '';
+
+  /* --- histórico completo --- */
+  document.getElementById('tb-paradas').innerHTML = todas.length ? todas.map(p => {
+    const lt = LOTES.find(l => l.id === p.lote);
+    return `<tr>
+      <td><b>${nomeLinha(p.linha)}</b></td>
+      <td>${p.motivo}</td>
+      <td><span class="tag ${p.penaliza ? '' : 'azul'}">${p.cat}</span></td>
+      <td class="mono">${lt ? lt.numero : '—'}</td>
+      <td class="mono">${hora(p.inicio)}</td>
+      <td class="mono">${p.fim ? hora(p.fim) : '<span class="tag ruim">em curso</span>'}</td>
+      <td class="num"><b>${p.duracao.toFixed(0)} min</b></td>
+      <td class="num"><span class="tag ${p.penaliza ? 'ruim' : 'ok'}">${p.penaliza ? 'penaliza' : 'não penaliza'}</span></td>
+    </tr>`;
+  }).join('')
+   : `<tr><td colspan="8" style="text-align:center;color:var(--apagado);padding:26px">Nenhuma parada no turno.</td></tr>`;
+}
+
+/* =================================================================
+   NAVEGAÇÃO + RELÓGIO
+================================================================= */
+function irPara(tela){
+  document.querySelectorAll('.tela').forEach(t => t.classList.remove('on'));
+  document.getElementById('tela-' + tela).classList.add('on');
+  document.querySelectorAll('#nav button').forEach(b =>
+    b.setAttribute('aria-current', b.dataset.tela === tela ? 'page' : 'false'));
+  pintaTudo();
+}
+document.querySelectorAll('#nav button').forEach(b =>
+  b.onclick = () => irPara(b.dataset.tela));
+
+function pintaTudo(){
+  pintaDashboard();
+  pintaApontamento();
+  pintaCadastros();
+  pintaGel();
+  pintaResultados();
+  pintaTurnos();
+  pintaParadas();
+}
+
+/* simulação: as linhas produzem sozinhas, como o chão de fábrica faria */
+function tique(){
+  AGORA = new Date(AGORA.getTime() + 1000);
+
+  document.getElementById('relogio').textContent = AGORA.toLocaleTimeString('pt-BR',{hour12:false});
+  document.getElementById('data').textContent =
+    AGORA.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'}).replace(/^\w/,c => c.toUpperCase());
+  const fimTurno = new Date(2026,6,14,15,48).getTime();
+  document.getElementById('restante').textContent = hhmm(Math.max(0,(fimTurno - AGORA.getTime())/60000));
+
+  // gera contagem automática nas linhas rodando (o operador "apertando o botão")
+  LINHAS.forEach(li => {
+    const e = estadoLinha(li.id);
+    if(e.tipo !== 'lote' || e.parada) return;
+    const lote = e.r.lote;
+    if(e.r.produzida >= lote.prevista) return;
+
+    const fator = fatorEmb(lote.embalagem);
+    // ritmo real: um pouco abaixo do ideal, com variação
+    const ritmo = lote.velIdeal * (li.id === 'PAST' ? 0.79 : 0.95);
+    const segPorCaixa = fator / (ritmo / 60);
+    const ultima = ativos().filter(x => x.lote === lote.id && x.tipo === 'contagem')
+      .sort((a,b) => b.ts - a.ts)[0];
+    if(!ultima || (AGORA.getTime() - ultima.ts)/1000 >= segPorCaixa * (0.85 + Math.random()*0.3)){
+      registrar({tipo:'contagem', linha:li.id, lote:lote.id, qtdEmb:1});
+    }
+  });
+
+  pintaTudo();
+}
+
+montaFormTurno();
+document.getElementById('mp-posto').innerHTML =
+  `<option value="TODOS">Todos os postos</option>` +
+  QUADROS.map(q => `<option value="${q.id}">${nomeLinha(q.linha)} · ${q.nome}</option>`).join('');
+pintaTudo();
+setInterval(tique, 1000);
+
+
+
+
+
+
+
+
+document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+</script>
+</body>
+</html>
