@@ -246,14 +246,11 @@
   .in-lote.pedindo{border-color:var(--azul);background:#eef1fb;animation:piscaLote 1.4s ease-in-out infinite}
   @keyframes piscaLote{0%,100%{border-color:var(--azul)}50%{border-color:#93a4e8}}
   .in-qtd{width:88px;text-align:right;font-weight:500}
+  .ap-aviso-inicio{padding:11px 17px;background:#fff8ec;border-top:1px solid #f0d9a8;color:#8a6d1f;font-size:13px}
   .ap-vazio{padding:18px 17px;color:var(--apagado);font-size:14px}
   table.ord .bt{padding:6px 11px;font-size:12px}
 
   /* ---------- QUADRO DE POSTO ---------- */
-  .grupo.borda-producao{border-top:4px solid var(--ok)}
-  .grupo.borda-parada{border-top:4px solid var(--atraso)}
-  .grupo.borda-setup{border-top:4px solid var(--atencao)}
-  .grupo.borda-ociosa{border-top:4px solid #94a3b8}
   .grupo{margin-bottom:22px}
   .grupo-cab{display:flex;align-items:center;gap:12px;margin-bottom:11px}
   .grupo-cab h2{font-family:'Raleway',sans-serif;font-weight:800;font-size:15px;letter-spacing:.08em;text-transform:uppercase}
@@ -680,9 +677,43 @@
 
 
 
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
+/* ---------------- JORNADA ---------------- */
+/* 10h no local: 9h de trabalho + 1h de almoço. Início padrão 07:17 (após café).
+   Exceção: o ENVASE faz revezamento de café e pode iniciar antes/depois.
+   Almoço 12:00–13:00, mas ALGUMAS linhas não param: envase, pastilha e a
+   encartuchadeira do gel seguem no almoço (revezamento de operador). */
+const JORNADA = {
+  inicioPadrao: '07:17',
+  almocoIni: '12:00',
+  almocoFim: '13:00',
+  fim: '17:17',              // 07:17 + 9h trabalho + 1h almoço
+  horasTrabalho: 9
+};
+// postos que NÃO param no almoço (seguem por revezamento)
+const NAO_PARA_ALMOCO = ['GEL-ENV','PAST-COR','PAST-FP','GEL-CR01'];
+const naoParaAlmoco = pid => NAO_PARA_ALMOCO.includes(pid);
+
+/* Linha só começa a contar quando a supervisora clica INICIAR.
+   Reuniões e treinamentos atrasam o começo; o botão marca o início real. */
+const LINHA_INICIADA = {};    // {linhaId: timestamp do início real}
+
+/* LÍQUIDOS: 3 produtos na mesma linha (FR01 = frasco).
+   Só o limpador foi cronometrado. Difusor e saponáceo faltam medir. */
+const PRODUTOS_LIQ = [
+  {nome:'Limpador perfumado', ml:120, unPorCaixa:12, velUnMin:7.0, medido:true},
+  {nome:'Difusor de ambientes', ml:null, unPorCaixa:null, velUnMin:null, medido:false},
+  {nome:'Saponáceo', ml:null, unPorCaixa:null, velUnMin:null, medido:false}
+];
+
 const LINHAS = [
   {id:'GEL',   nome:'Gel Sanitário'},
   {id:'PAST',  nome:'Pastilha Sanitária'},
@@ -718,7 +749,7 @@ const PRODUTOS = [
   {id:'PAST-MAR', nome:'Pastilha Marine',         linha:'PAST'},
   {id:'PED-FLO',  nome:'Pedra Floral',            linha:'PEDRA'},
   {id:'PED-CIT',  nome:'Pedra Citrus',            linha:'PEDRA'},
-  {id:'LIQ-EUC',  nome:'Desinfetante Eucalipto',  linha:'LIQ'}
+  {id:'LIQ-EUC',  nome:' Eucalipto',  linha:'LIQ'}
 ];
 
 // PADRÃO = velocidade ideal + arranque + meta de setup. Versionado no banco real.
@@ -1300,15 +1331,8 @@ function pintaDashboard(){
     const parados = qs.filter(x => x.r && x.r.parado).length;
     const ociosos = qs.filter(x => !x.r).length;
 
-    // estado da linha -> cor da borda superior
-    const est = estadoLinha(li.id);
-    const borda = est.tipo === 'lote' && est.s === 'parada' ? 'parada'      // vermelho
-                : est.tipo === 'setup'                       ? 'setup'       // amarelo
-                : est.tipo === 'lote'                        ? 'producao'    // verde
-                : 'ociosa';                                                  // cinza
-
     return `
-    <section class="grupo borda-${borda}">
+    <section class="grupo">
       <div class="grupo-cab">
         <h2>${li.nome}</h2>
         <div class="risco"></div>
@@ -1386,33 +1410,7 @@ const QUADROS = [
 
 const quadro = id => QUADROS.find(q => q.id === id);
 
-/* ---------------- JORNADA ---------------- */
-/* 10h no local: 9h de trabalho + 1h de almoço. Início padrão 07:17 (após café).
-   Exceção: o ENVASE faz revezamento de café e pode iniciar antes/depois.
-   Almoço 12:00–13:00, mas ALGUMAS linhas não param: envase, pastilha e a
-   encartuchadeira do gel seguem no almoço (revezamento de operador). */
-const JORNADA = {
-  inicioPadrao: '07:17',
-  almocoIni: '12:00',
-  almocoFim: '13:00',
-  fim: '17:17',              // 07:17 + 9h trabalho + 1h almoço
-  horasTrabalho: 9
-};
-// postos que NÃO param no almoço (seguem por revezamento)
-const NAO_PARA_ALMOCO = ['GEL-ENV','PAST-COR','PAST-FP','GEL-CR01'];
-const naoParaAlmoco = pid => NAO_PARA_ALMOCO.includes(pid);
 
-/* Linha só começa a contar quando a supervisora clica INICIAR.
-   Reuniões e treinamentos atrasam o começo; o botão marca o início real. */
-const LINHA_INICIADA = {};    // {linhaId: timestamp do início real}
-
-/* LÍQUIDOS: 3 produtos na mesma linha (FR01 = frasco).
-   Só o limpador foi cronometrado. Difusor e saponáceo faltam medir. */
-const PRODUTOS_LIQ = [
-  {nome:'Limpador perfumado', ml:120, unPorCaixa:12, velUnMin:7.0, medido:true},
-  {nome:'Difusor de ambientes', ml:null, unPorCaixa:null, velUnMin:null, medido:false},
-  {nome:'Saponáceo', ml:null, unPorCaixa:null, velUnMin:null, medido:false}
-];
 
 
 /* Áreas de turno e de parada. O Gel é dividido: o envase trabalha em batelada,
@@ -1558,7 +1556,7 @@ function linhaDoProduto(desc){
   if(d.includes('gel'))                                  return 'GEL';
   if(d.includes('pastilha'))                             return 'PAST';
   if(d.includes('pedra') || d.includes('naftalina'))     return 'PEDRA';
-  return 'LIQ';   // limpador, difusor, saponáceo, desinfetante
+  return 'LIQ';   // limpador perfumado, difusor de ambientes, saponáceo
 }
 
 function decodificaRota(desc){
@@ -2074,16 +2072,25 @@ function pintaApontamento(){
     if(!qs.length) return '';
 
     const iniciada = LINHA_INICIADA[li.id];
+    // ENVASE: início manual próprio (começa antes da Paula chegar)
+    const ehEnvase = li.id === 'GEL';
     return `
-    <section class="grupo">
+    <section class="grupo ${iniciada ? '' : 'linha-espera'}">
       <div class="grupo-cab">
         <h2>${li.nome}</h2>
         <div class="risco"></div>
         ${iniciada
-          ? `<span class="tag ok" style="margin-left:auto">iniciada ${hora(iniciada)}</span>`
-          : `<button class="bt iniciar" data-iniciarlinha="${li.id}" style="margin-left:auto">▶ Iniciar linha</button>`}
+          ? `<span class="tag ok" style="margin-left:auto">iniciada ${hora(iniciada)}</span>
+             ${ehEnvase ? `<button class="bt" data-horaenvase="${li.id}" style="font-size:11px;padding:5px 9px">ajustar hora</button>` : ''}`
+          : ehEnvase
+            ? `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+                 <input type="time" id="ini-env" value="06:00" style="border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace;font-size:13px">
+                 <button class="bt iniciar" data-iniciarenvase="${li.id}">▶ Iniciar envase</button>
+               </span>`
+            : `<button class="bt iniciar" data-iniciarlinha="${li.id}" style="margin-left:auto">▶ Iniciar linha</button>`}
       </div>
-      ${!iniciada ? `<div class="ap-vazio">Linha ainda não iniciada. Clique em <b>Iniciar linha</b> quando a produção começar — a contagem só vale a partir daí.</div>` : qs.map(q => {
+      ${!iniciada ? `<div class="ap-aviso-inicio">Programação do dia abaixo. A contagem só vale após <b>Iniciar linha</b>.</div>` : ''}
+      ${qs.map(q => {
         // TODAS as ordens deste posto ainda abertas — inclusive as de ontem
         const ordens = LOTES.filter(l => l.posto === q.id && l.status !== 'fim')
           .map(l => ({l, r: realizado(l)}))
@@ -2230,10 +2237,36 @@ function pintaApontamento(){
     </section>`;
   }).join('');
 
-  /* iniciar linha */
+  /* iniciar linha (padrão) */
   document.querySelectorAll('#apont [data-iniciarlinha]').forEach(b => b.onclick = () => {
     LINHA_INICIADA[b.dataset.iniciarlinha] = AGORA.getTime();
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash('Linha iniciada · contagem valendo');
+    pintaTudo();
+  });
+
+  /* iniciar ENVASE com hora manual (começa antes da Paula chegar) */
+  document.querySelectorAll('#apont [data-iniciarenvase]').forEach(b => b.onclick = () => {
+    const campo = document.getElementById('ini-env');
+    const [h,m] = (campo ? campo.value : '06:00').split(':').map(Number);
+    const ts = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    LINHA_INICIADA[b.dataset.iniciarenvase] = ts;
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Envase iniciado às ${campo ? campo.value : '06:00'}`);
+    pintaTudo();
+  });
+
+  /* ajustar a hora do envase depois de iniciado */
+  document.querySelectorAll('#apont [data-horaenvase]').forEach(b => b.onclick = () => {
+    const atual = new Date(LINHA_INICIADA[b.dataset.horaenvase]);
+    const nova = prompt('Hora de início do envase (HH:MM):',
+      String(atual.getHours()).padStart(2,'0') + ':' + String(atual.getMinutes()).padStart(2,'0'));
+    if(!nova) return;
+    const [h,m] = nova.split(':').map(Number);
+    if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
+    LINHA_INICIADA[b.dataset.horaenvase] =
+      new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    flash('Hora do envase ajustada para ' + nova);
     pintaTudo();
   });
 
@@ -2724,6 +2757,12 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
 
 
 
