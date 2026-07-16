@@ -287,6 +287,7 @@
   .et.shr{background:#fdf1e0;color:var(--atencao)}
   .et.cx{background:#f1f3f7;color:#334155}
   .rota .sep{color:var(--neutro);font-family:'DM Mono',monospace;font-size:11px}
+  .conf-motivo{margin-top:6px;padding:8px 11px;background:#fff4e0;border:1px solid #f0c674;border-radius:7px;font-size:12px;color:#8a5a00;line-height:1.5}
   .alerta-parse{background:#fdf1e0;color:#92400e;font-family:'DM Mono',monospace;font-size:10px;padding:3px 7px;border-radius:5px;display:inline-block;margin-top:4px}
 
   .resumo-imp{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--linha);border:1px solid var(--linha);border-radius:var(--r);overflow:hidden;margin:18px 0}
@@ -567,10 +568,42 @@
       <div class="bloco-topo"><span class="titulo-secao">Turnos de hoje</span></div>
       <table><thead><tr>
         <th>Linha</th><th>Turno</th><th>Janela</th>
-        <th class="num">Intervalo</th><th class="num">Tempo disponível</th><th class="num">Pessoas</th>
+        <th class="num">Intervalo</th><th class="num">Tempo disponível</th><th class="num">Pessoas</th><th></th>
       </tr></thead><tbody id="tb-turnos"></tbody></table>
     </div>
   
+    <h2 class="titulo-secao" style="margin:30px 0 10px">Jornada padrão</h2>
+    <p class="sub" style="margin-bottom:14px">10 horas no local: 9 de trabalho + 1 de almoço. É a base do cálculo de OEE e de carga. O envase tem início próprio (revezamento de café).</p>
+    <div class="form" style="margin-bottom:20px">
+      <div class="campos">
+        <div class="campo">
+          <label for="j-ini">Início padrão</label>
+          <input type="time" id="j-ini" value="07:17">
+        </div>
+        <div class="campo">
+          <label for="j-fim">Fim</label>
+          <input type="time" id="j-fim" value="17:17">
+        </div>
+        <div class="campo">
+          <label for="j-alm-ini">Almoço início</label>
+          <input type="time" id="j-alm-ini" value="12:00">
+        </div>
+        <div class="campo">
+          <label for="j-alm-fim">Almoço fim</label>
+          <input type="time" id="j-alm-fim" value="13:00">
+        </div>
+      </div>
+      <button class="btn-primario" id="btn-jornada">Salvar jornada</button>
+    </div>
+
+    <h2 class="titulo-secao" style="margin:30px 0 10px">Lotação por posto</h2>
+    <p class="sub" style="margin-bottom:14px">Quantos operadores em cada posto. Nos postos manuais, o número muda o padrão — a CR04 escala: 1 pessoa faz 80 caixas/dia, 2 fazem 160.</p>
+    <div class="bloco" style="margin-bottom:20px">
+      <table><thead><tr>
+        <th>Posto</th><th>Linha</th><th class="num">Ritmo</th><th class="num">Pessoas</th><th>Observação</th>
+      </tr></thead><tbody id="tb-lotacao"></tbody></table>
+    </div>
+
     <h2 class="titulo-secao" style="margin:30px 0 10px">Motivos de parada</h2>
     <p class="sub" style="margin-bottom:14px">A lista muda conforme o posto. "Falta de funcionário" só aparece nos postos manuais; "quebra da encartuchadeira" não existe no envase.</p>
 <div class="form" style="margin-bottom:20px">
@@ -683,6 +716,18 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -705,6 +750,23 @@ const naoParaAlmoco = pid => NAO_PARA_ALMOCO.includes(pid);
 /* Linha só começa a contar quando a supervisora clica INICIAR.
    Reuniões e treinamentos atrasam o começo; o botão marca o início real. */
 const LINHA_INICIADA = {};    // {linhaId: timestamp do início real}
+
+/* ---------------- LOTAÇÃO POR POSTO ---------------- */
+/* Quantos operadores em cada posto. Muda o padrão dos postos manuais.
+   A CR04 escala: 1 pessoa = 80 cx/dia, 2 pessoas = 160 cx/dia (linear). */
+const LOTACAO = {
+  'GEL-ENV':  {pessoas:4, fixo:true},
+  'GEL-CR01': {pessoas:1, fixo:true},
+  'GEL-CR04': {pessoas:1, fixo:false, cxDiaPorPessoa:80},   // selecionável na programação
+  'PAST-COR': {pessoas:4, fixo:true},
+  'PAST-FP':  {pessoas:4, fixo:true},
+  'PEDRA-PR': {pessoas:2, fixo:true},
+  'PEDRA-CR': {pessoas:2, fixo:true},
+  'PEDRA-FP': {pessoas:1, fixo:true},   // shrink
+  'PEDRA-CX': {pessoas:2, fixo:true},   // cartela manual
+  'LIQ':      {pessoas:2, fixo:false}   // limpador/difusor 2 · saponáceo 3
+};
+const SHRINK_PESSOAS = 1;   // posto de shrink, quando existir separado
 
 /* LÍQUIDOS: 3 produtos na mesma linha (FR01 = frasco).
    Só o limpador foi cronometrado. Difusor e saponáceo faltam medir. */
@@ -806,6 +868,7 @@ const DIA_ONTEM = '13/07';
 const min = m => m * 60000;
 
 let TURNOS = [];
+let TURNO_EDITANDO = null;
 let LOTES  = [];
 let EVENTOS = [];       // {ts, linha, lote, tipo, qtdEmb, qtdUn, motivo}
 let seqEvento = 0;
@@ -1358,20 +1421,87 @@ function montaFormTurno(){
   document.getElementById('t-linha').innerHTML =
     AREAS.map(a => `<option value="${a.id}">${a.nome}</option>`).join('');
 }
+// ---- JORNADA editável ----
+function carregaJornadaForm(){
+  const g = id => document.getElementById(id);
+  if(g('j-ini')) g('j-ini').value = JORNADA.inicioPadrao;
+  if(g('j-fim')) g('j-fim').value = JORNADA.fim;
+  if(g('j-alm-ini')) g('j-alm-ini').value = JORNADA.almocoIni;
+  if(g('j-alm-fim')) g('j-alm-fim').value = JORNADA.almocoFim;
+}
+document.getElementById('btn-jornada') && (document.getElementById('btn-jornada').onclick = () => {
+  const g = id => document.getElementById(id).value;
+  JORNADA.inicioPadrao = g('j-ini');
+  JORNADA.fim = g('j-fim');
+  JORNADA.almocoIni = g('j-alm-ini');
+  JORNADA.almocoFim = g('j-alm-fim');
+  // recalcula horas de trabalho (fim - inicio - almoço)
+  const min = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
+  const almoco = (min(JORNADA.almocoFim)-min(JORNADA.almocoIni))/60;
+  JORNADA.horasTrabalho = (min(JORNADA.fim)-min(JORNADA.inicioPadrao))/60 - almoco;
+  flash(`Jornada salva · ${JORNADA.horasTrabalho.toFixed(1)}h de trabalho`);
+  pintaTudo();
+});
+
+// ---- LOTAÇÃO por posto ----
+function pintaLotacao(){
+  const tb = document.getElementById('tb-lotacao');
+  if(!tb) return;
+  tb.innerHTML = QUADROS.map(q => {
+    const cfg = LOTACAO[q.id] || {pessoas:1, fixo:true};
+    const escala = cfg.cxDiaPorPessoa
+      ? `${cfg.cxDiaPorPessoa} cx/dia por pessoa · atual ${cfg.pessoas * cfg.cxDiaPorPessoa} cx/dia`
+      : (q.manual ? 'posto manual' : 'ritmo de máquina');
+    const vel = velDoQuadro(q, null);
+    return `<tr>
+      <td><b>${q.nome}</b></td>
+      <td>${nomeLinha(q.linha)}</td>
+      <td class="num mono">${vel ? vel.toFixed(1) + ' <span class="rot">un/min</span>' : '<span class="rot">—</span>'}</td>
+      <td class="num">
+        <input type="number" min="0" max="12" value="${cfg.pessoas}" data-lot="${q.id}"
+               style="width:64px;text-align:right;border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace">
+      </td>
+      <td class="rot">${escala}</td>
+    </tr>`;
+  }).join('');
+
+  tb.querySelectorAll('[data-lot]').forEach(inp => inp.onchange = () => {
+    const pid = inp.dataset.lot;
+    const n = Math.max(0, parseInt(inp.value,10) || 0);
+    if(!LOTACAO[pid]) LOTACAO[pid] = {pessoas:n, fixo:true};
+    else LOTACAO[pid].pessoas = n;
+    const cfg = LOTACAO[pid];
+    flash(cfg.cxDiaPorPessoa
+      ? `${q_nome(pid)}: ${n} pessoa(s) · ${n*cfg.cxDiaPorPessoa} cx/dia`
+      : `${q_nome(pid)}: ${n} pessoa(s)`);
+    pintaTudo();
+  });
+}
+function q_nome(pid){ const q = quadro(pid); return q ? q.nome : pid; }
+
 document.getElementById('btn-turno').onclick = () => {
   const [hi,mi] = document.getElementById('t-ini').value.split(':').map(Number);
   const [hf,mf] = document.getElementById('t-fim').value.split(':').map(Number);
   let ini = new Date(2026,6,14,hi,mi).getTime();
   let fim = new Date(2026,6,14,hf,mf).getTime();
   if(fim <= ini) fim += min(24*60);            // turno que vira a meia-noite
-  TURNOS.push({
-    id:'T'+Date.now(), linha:document.getElementById('t-linha').value,
+  const dados = {
+    linha:document.getElementById('t-linha').value,
     nome:document.getElementById('t-nome').value,
     inicio:ini, fim,
     intervalo:+document.getElementById('t-int').value,
     pessoas:+document.getElementById('t-pes').value
-  });
-  flash('Turno registrado');
+  };
+  if(TURNO_EDITANDO){
+    const t = TURNOS.find(x => x.id === TURNO_EDITANDO);
+    if(t) Object.assign(t, dados);
+    TURNO_EDITANDO = null;
+    document.getElementById('btn-turno').textContent = 'Registrar turno';
+    flash('Turno atualizado');
+  } else {
+    TURNOS.push({id:'T'+Date.now(), ...dados});
+    flash('Turno registrado');
+  }
   pintaTurnos();
 };
 
@@ -1386,8 +1516,38 @@ function pintaTurnos(){
       <td class="num">${t.intervalo} min</td>
       <td class="num"><b>${hhmm(disp)}</b></td>
       <td class="num">${t.pessoas}</td>
+      <td class="num">
+        <button class="bt" data-editurno="${t.id}" style="padding:5px 10px;font-size:12px">Editar</button>
+        <button class="bt" data-delturno="${t.id}" style="padding:5px 10px;font-size:12px;border-color:#f5c2c2;color:var(--atraso)">Remover</button>
+      </td>
     </tr>`;
   }).join('');
+
+  document.querySelectorAll('[data-editurno]').forEach(b => b.onclick = () => {
+    const t = TURNOS.find(x => x.id === b.dataset.editurno);
+    if(!t) return;
+    const g = id => document.getElementById(id);
+    const opt = [...g('t-linha').options].find(o => o.value === t.linha);
+    if(opt) g('t-linha').value = opt.value;
+    g('t-nome').value = t.nome;
+    g('t-ini').value = hora(t.inicio);
+    g('t-fim').value = hora(t.fim);
+    g('t-pes').value = t.pessoas;
+    g('t-int').value = t.intervalo;
+    TURNO_EDITANDO = t.id;
+    document.getElementById('btn-turno').textContent = 'Salvar alterações';
+    if(g('t-nome').scrollIntoView) g('t-nome').scrollIntoView({behavior:'smooth', block:'center'});
+    flash('Editando turno — altere e salve');
+  });
+
+  document.querySelectorAll('[data-delturno]').forEach(b => b.onclick = () => {
+    const t = TURNOS.find(x => x.id === b.dataset.delturno);
+    if(!t) return;
+    if(!confirm(`Remover o turno "${t.nome}" de ${nomeLinha(t.linha)}?`)) return;
+    TURNOS = TURNOS.filter(x => x.id !== b.dataset.delturno);
+    flash('Turno removido');
+    pintaTudo();
+  });
 }
 
 /* =================================================================
@@ -1461,21 +1621,29 @@ function postoDaOrdem(rota, linha, um){
   return 'LIQ';
 }
 
+function pessoasDoPosto(pid){
+  return (LOTACAO[pid] && LOTACAO[pid].pessoas) || 1;
+}
 function velDoQuadro(q, lote){
   const f = (FATOR_RITMO[q.linha] || {v:1}).v;
   if(q.manual){
-    const pessoas = PESSOAS[q.id] || 1;
+    const pessoas = pessoasDoPosto(q.id);
     const un = lote ? fatorEmb(lote.embalagem) : 96;
+    const cfg = LOTACAO[q.id] || {};
+    if(cfg.cxDiaPorPessoa){
+      // CR04: pessoas × 80 cx/dia ÷ horas de trabalho ÷ 60 min × un/caixa
+      const cxDia = pessoas * cfg.cxDiaPorPessoa;
+      const cxMin = cxDia / (JORNADA.horasTrabalho * 60);
+      return cxMin * un;
+    }
     return pessoas * CR_MAN_CXH * un / 60;
   }
   return q.meta ? q.meta * f : null;
 }
 
-/* quantas pessoas em cada posto manual — muda o padrão em tempo real */
-const PESSOAS = {'GEL-CR04':1, 'PAST-FP':2};
-
 /* lote de fabricação em andamento (1V046A...) — preenchido pela supervisora */
 const LOTE_FAB = {};
+const PESSOAS = new Proxy({}, { get: (_,k) => pessoasDoPosto(k) });
 
 /* =================================================================
    PROGRAMAÇÃO — decodifica a rota escrita no nome do produto
@@ -1613,9 +1781,10 @@ function decodificaRota(desc){
     etapas.push({tipo:'cx', cod:codEmb, rot:`Cartela ${unPorEmb} un`});
   }
 
-  if(conferir) avisos.push('Convenção mista: CX conta unidades aqui, cartuchos nos outros. Confirme antes de subir — o fator fica gravado no cadastro.');
+  let motivoConferencia = null;
+  if(conferir) motivoConferencia = 'Convenção mista de embalagem: aqui a caixa (CX) conta unidades, mas nas outras ordens conta cartuchos. Confirme se o fator ' + unPorEmb + ' un/caixa está certo antes de subir.';
 
-  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos};
+  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos, motivoConferencia};
 }
 
 /* Gargalo = o posto mais lento da ROTA. Rotas reais:
@@ -1722,6 +1891,7 @@ function lerProgramacao(){
 
 function pintaProgramacao(){
   const semPadrao = PROG.filter(p => !p.gargalo).length;
+  const confCount = PROG.filter(p => p.rota.motivoConferencia).length;
   const totalUn   = PROG.reduce((s,p) => s + p.unidades, 0);
   const totalMin  = PROG.reduce((s,p) => s + (p.tempo || 0), 0);
   const avisos    = PROG.filter(p => p.rota.avisos.length).length;
@@ -1732,7 +1902,7 @@ function pintaProgramacao(){
       <div><div class="val mono">${nf(totalUn)}</div><div class="rot">Unidades planejadas</div></div>
       <div><div class="val mono">${hhmm(totalMin)}</div><div class="rot">Tempo padrão total</div></div>
       <div><div class="val mono ${semPadrao ? 'v-ar' : 'v-ok'}">${semPadrao}</div><div class="rot">Sem velocidade cadastrada</div></div>
-      <div><div class="val mono ${avisos ? 'v-at' : 'v-ok'}">${avisos}</div><div class="rot">Precisam de conferência</div></div>
+      <div><div class="val mono ${confCount ? 'v-at' : 'v-ok'}">${confCount}</div><div class="rot">Precisam de conferência${confCount ? ' · veja o motivo em cada ordem abaixo' : ''}</div></div>
     </div>` : '';
 
   document.getElementById('tb-prog').innerHTML = PROG.length ? PROG.map(p => `
@@ -1745,6 +1915,7 @@ function pintaProgramacao(){
         </div>
         ${p.obs ? `<div class="rot" style="margin-top:4px">${p.obs}</div>` : ''}
         ${p.rota.avisos.map(a => `<div class="alerta-parse">⚠ ${a}</div>`).join('')}
+        ${p.rota.motivoConferencia ? `<div class="conf-motivo">🔍 <b>Precisa de conferência:</b> ${p.rota.motivoConferencia}</div>` : ''}
       </td>
       <td><span class="tag azul">${nomeLinha(p.linha)}</span></td>
       <td class="num">${nf(p.qtdPlano)} <span class="rot">${p.um}</span>
@@ -2258,15 +2429,29 @@ function pintaApontamento(){
 
   /* ajustar a hora do envase depois de iniciado */
   document.querySelectorAll('#apont [data-horaenvase]').forEach(b => b.onclick = () => {
-    const atual = new Date(LINHA_INICIADA[b.dataset.horaenvase]);
-    const nova = prompt('Hora de início do envase (HH:MM):',
+    const linhaId = b.dataset.horaenvase;
+    const atual = new Date(LINHA_INICIADA[linhaId]);
+    const nova = prompt('A que horas o envase REALMENTE começou? (HH:MM)\n\nO "deveria ter" será recalculado a partir desse horário.',
       String(atual.getHours()).padStart(2,'0') + ':' + String(atual.getMinutes()).padStart(2,'0'));
     if(!nova) return;
     const [h,m] = nova.split(':').map(Number);
     if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
-    LINHA_INICIADA[b.dataset.horaenvase] =
-      new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
-    flash('Hora do envase ajustada para ' + nova);
+    const novoTs = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    LINHA_INICIADA[linhaId] = novoTs;
+
+    // move o início REAL de cada lote em produção do envase desta linha.
+    // como o "deveria ter" = tempo líquido × velocidade, mudar o início
+    // recalcula a quantidade esperada sozinho.
+    const postosEnvase = QUADROS.filter(q => q.linha === linhaId && ehGranel(q.id)).map(q => q.id);
+    let movidos = 0;
+    EVENTOS.forEach(e => {
+      if(e.tipo === 'lote_iniciado'){
+        const l = LOTES.find(x => x.id === e.lote);
+        if(l && postosEnvase.includes(l.posto)){ e.ts = novoTs; movidos++; }
+      }
+    });
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(movidos ? `Envase recolocado às ${nova} · deveria-ter recalculado` : `Hora ajustada para ${nova}`);
     pintaTudo();
   });
 
@@ -2705,6 +2890,8 @@ function pintaTudo(){
   pintaDashboard();
   pintaApontamento();
   pintaCadastros();
+  pintaLotacao();
+  carregaJornadaForm();
   pintaGel();
   pintaResultados();
   pintaTurnos();
@@ -2757,6 +2944,18 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
