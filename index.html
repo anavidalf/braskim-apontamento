@@ -250,6 +250,10 @@
   table.ord .bt{padding:6px 11px;font-size:12px}
 
   /* ---------- QUADRO DE POSTO ---------- */
+  .grupo.borda-producao{border-top:4px solid var(--ok)}
+  .grupo.borda-parada{border-top:4px solid var(--atraso)}
+  .grupo.borda-setup{border-top:4px solid var(--atencao)}
+  .grupo.borda-ociosa{border-top:4px solid #94a3b8}
   .grupo{margin-bottom:22px}
   .grupo-cab{display:flex;align-items:center;gap:12px;margin-bottom:11px}
   .grupo-cab h2{font-family:'Raleway',sans-serif;font-weight:800;font-size:15px;letter-spacing:.08em;text-transform:uppercase}
@@ -357,6 +361,14 @@
     nav{order:3;width:100%;margin-left:0;overflow-x:auto}
   }
   @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  @media print {
+    body.imprimindo-resultados #nav,
+    body.imprimindo-resultados .tela:not(#tela-resultados),
+    body.imprimindo-resultados #btn-pdf,
+    body.imprimindo-resultados #r-dia { display:none !important; }
+    body.imprimindo-resultados #tela-resultados { display:block !important; }
+    body.imprimindo-resultados { background:#fff }
+  }
 </style>
 </head>
 <body>
@@ -402,6 +414,12 @@
   <section class="tela" id="tela-resultados">
     <h1 class="pag">Resultados da linha</h1>
     <p class="sub">Tudo abaixo é derivado dos eventos do turno. Nenhum número foi digitado por ninguém.</p>
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <label class="rot" for="r-dia">Dia:</label>
+      <input type="date" id="r-dia" style="border:1px solid var(--linha);border-radius:7px;padding:8px 11px;font-family:'DM Mono',monospace;font-size:14px">
+      <button class="bt" id="btn-pdf" style="margin-left:auto;background:var(--azul);color:#fff;border-color:var(--azul)">⭳ Exportar PDF</button>
+    </div>
 
     <div class="k-abas" id="r-abas"></div>
     <div id="r-corpo"></div>
@@ -645,6 +663,13 @@
 </div>
 
 <script>
+
+
+
+
+
+
+
 
 
 
@@ -966,8 +991,8 @@ function flash(msg){
 
   // turnos
   LINHAS.forEach(li => TURNOS.push({
-    id:'T-'+li.id, linha:li.id, nome:'1º Turno',
-    inicio:hoje([6,0]), fim:hoje([15,48]),
+    id:'T-'+li.id, linha:li.id, nome:'Jornada',
+    inicio:hoje([7,17]), fim:hoje([17,17]),   // 9h trabalho + 1h almoço
     intervalo:60, pessoas: li.id==='PAST'?8 : li.id==='GEL'?6 : li.id==='LIQ'?7 : 5
   }));
 
@@ -1275,8 +1300,15 @@ function pintaDashboard(){
     const parados = qs.filter(x => x.r && x.r.parado).length;
     const ociosos = qs.filter(x => !x.r).length;
 
+    // estado da linha -> cor da borda superior
+    const est = estadoLinha(li.id);
+    const borda = est.tipo === 'lote' && est.s === 'parada' ? 'parada'      // vermelho
+                : est.tipo === 'setup'                       ? 'setup'       // amarelo
+                : est.tipo === 'lote'                        ? 'producao'    // verde
+                : 'ociosa';                                                  // cinza
+
     return `
-    <section class="grupo">
+    <section class="grupo borda-${borda}">
       <div class="grupo-cab">
         <h2>${li.nome}</h2>
         <div class="risco"></div>
@@ -1349,10 +1381,39 @@ const QUADROS = [
   {id:'PEDRA-PR',  linha:'PEDRA', nome:'Prensa',                curto:'Prensa', meta:50.0},
   {id:'PEDRA-FP',  linha:'PEDRA', nome:'FP01 · Embaladora',     curto:'FP01',   meta:49.7},
   {id:'PEDRA-CR',  linha:'PEDRA', nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:51.8},
-  {id:'LIQ',       linha:'LIQ',   nome:'Líquidos',              curto:'Líq.',   meta:null}
+  {id:'LIQ',       linha:'LIQ',   nome:'Envase de frasco',      curto:'Frasco', meta:7.0}   // limpador 120mL: 7 un/min medido
 ];
 
 const quadro = id => QUADROS.find(q => q.id === id);
+
+/* ---------------- JORNADA ---------------- */
+/* 10h no local: 9h de trabalho + 1h de almoço. Início padrão 07:17 (após café).
+   Exceção: o ENVASE faz revezamento de café e pode iniciar antes/depois.
+   Almoço 12:00–13:00, mas ALGUMAS linhas não param: envase, pastilha e a
+   encartuchadeira do gel seguem no almoço (revezamento de operador). */
+const JORNADA = {
+  inicioPadrao: '07:17',
+  almocoIni: '12:00',
+  almocoFim: '13:00',
+  fim: '17:17',              // 07:17 + 9h trabalho + 1h almoço
+  horasTrabalho: 9
+};
+// postos que NÃO param no almoço (seguem por revezamento)
+const NAO_PARA_ALMOCO = ['GEL-ENV','PAST-COR','PAST-FP','GEL-CR01'];
+const naoParaAlmoco = pid => NAO_PARA_ALMOCO.includes(pid);
+
+/* Linha só começa a contar quando a supervisora clica INICIAR.
+   Reuniões e treinamentos atrasam o começo; o botão marca o início real. */
+const LINHA_INICIADA = {};    // {linhaId: timestamp do início real}
+
+/* LÍQUIDOS: 3 produtos na mesma linha (FR01 = frasco).
+   Só o limpador foi cronometrado. Difusor e saponáceo faltam medir. */
+const PRODUTOS_LIQ = [
+  {nome:'Limpador perfumado', ml:120, unPorCaixa:12, velUnMin:7.0, medido:true},
+  {nome:'Difusor de ambientes', ml:null, unPorCaixa:null, velUnMin:null, medido:false},
+  {nome:'Saponáceo', ml:null, unPorCaixa:null, velUnMin:null, medido:false}
+];
+
 
 /* Áreas de turno e de parada. O Gel é dividido: o envase trabalha em batelada,
    a embalagem (CR01/CR04) é contínua e às vezes tem turno próprio (noite).
@@ -1707,10 +1768,33 @@ function pintaProgramacao(){
 
 document.getElementById('btn-ler').onclick = lerProgramacao;
 
+// seletor de dia em Resultados (default hoje)
+(() => {
+  const di = document.getElementById('r-dia');
+  if(di){ di.value = AGORA.toISOString().slice(0,10);
+    di.onchange = () => { DIA_RESULTADO = di.value; pintaResultados && pintaResultados(); };
+  }
+})();
+let DIA_RESULTADO = AGORA.toISOString().slice(0,10);
+
+// exportar em PDF: imprime só a área de resultados
+document.getElementById('btn-pdf') && (document.getElementById('btn-pdf').onclick = () => {
+  document.body.classList.add('imprimindo-resultados');
+  window.print();
+  setTimeout(() => document.body.classList.remove('imprimindo-resultados'), 500);
+});
+
+
 document.getElementById('cola').value = ["Ordem\tDescrição do produto\tU.M.\tObservação\tPlano", "\t1 Floral\t\t\t", "MTS026001 - 001\tGel sanitário floral TP\tUNID\t\t8100", "\t4 Limão\t\t\t", "MTS026002 - 001\tGel sanitário limão TP\tUNID\t\t34800", "MTS026003 - 001\tGel sanitário Triex floral 7g CR01 SH12 CX288\tCX\t\t18", "MTS026004 - 001\t\"\tGel sanitário Aplik floral 7g CR01 CX72\"\tCX\t\t41", "MTS026005 - 001\tGel sanitário Aplik limão 7g CR04 SH06 CX24\tCX\t25 LA + 25 LB + 3 LC\t53", "MTS026007 - 001\tGel sanitário Q-Odor limão 7g CR01 CX48\tCX\t\t352", "MTS026010 - 001\tBatelada pedra sanitária floral\tUNID\t\t0,5", "MTS026011 - 001\tPedra sanitária Aplik floral 25g FP01\tUNID\t\t2844", "MTS026018 - 001\tPedra sanitária Aplik mix 25g CT12 CX144\tCX\t\t79", "MTS026020 - 001\tPastilha sanitária lavanda FP01\tUNID\t\t31968", "MTS026021 - 001\tPastilha sanitária Bril Odor lavanda 10g CR03 CX36\tCX\t\t100", "MTS026023 - 001\tLimpador perfumado Aplik chá branco 120mL FR01 CX12\tCX\t\t116"].join('\n');
 lerProgramacao();
 
+let PROG_SUBIDA = null;   // data da última subida — trava 1x/dia
 document.getElementById('btn-subir').onclick = () => {
+  const hoje = AGORA.toLocaleDateString('pt-BR');
+  if(PROG_SUBIDA === hoje){
+    if(!confirm('A programação de hoje já foi subida.\n\nSubir de novo cria as ordens em duplicidade. Continuar mesmo assim?'))
+      return;
+  }
   let n = 0;
   PROG.filter(p => p.gargalo && p.unidades > 0).forEach((p, i) => {
     // a importação alimenta o CADASTRO — não cria lote órfão
@@ -1757,6 +1841,9 @@ document.getElementById('btn-subir').onclick = () => {
     }
   });
   flash(`${n} ordens subiram para o chão de fábrica`);
+  PROG_SUBIDA = hoje;
+  document.getElementById('btn-subir').disabled = true;
+  document.getElementById('btn-subir').textContent = 'Programação de hoje já subida';
   pintaTudo();
   irPara('dashboard');
 };
@@ -1986,10 +2073,17 @@ function pintaApontamento(){
     const qs = QUADROS.filter(q => q.linha === li.id);
     if(!qs.length) return '';
 
+    const iniciada = LINHA_INICIADA[li.id];
     return `
     <section class="grupo">
-      <div class="grupo-cab"><h2>${li.nome}</h2><div class="risco"></div></div>
-      ${qs.map(q => {
+      <div class="grupo-cab">
+        <h2>${li.nome}</h2>
+        <div class="risco"></div>
+        ${iniciada
+          ? `<span class="tag ok" style="margin-left:auto">iniciada ${hora(iniciada)}</span>`
+          : `<button class="bt iniciar" data-iniciarlinha="${li.id}" style="margin-left:auto">▶ Iniciar linha</button>`}
+      </div>
+      ${!iniciada ? `<div class="ap-vazio">Linha ainda não iniciada. Clique em <b>Iniciar linha</b> quando a produção começar — a contagem só vale a partir daí.</div>` : qs.map(q => {
         // TODAS as ordens deste posto ainda abertas — inclusive as de ontem
         const ordens = LOTES.filter(l => l.posto === q.id && l.status !== 'fim')
           .map(l => ({l, r: realizado(l)}))
@@ -2135,6 +2229,13 @@ function pintaApontamento(){
       }).join('')}
     </section>`;
   }).join('');
+
+  /* iniciar linha */
+  document.querySelectorAll('#apont [data-iniciarlinha]').forEach(b => b.onclick = () => {
+    LINHA_INICIADA[b.dataset.iniciarlinha] = AGORA.getTime();
+    flash('Linha iniciada · contagem valendo');
+    pintaTudo();
+  });
 
   /* ---- ações ---- */
   const ev = (sel, fn) => document.querySelectorAll('#apont ' + sel).forEach(b =>
@@ -2623,6 +2724,13 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
 
 
 
