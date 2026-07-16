@@ -287,6 +287,7 @@
   .et.shr{background:#fdf1e0;color:var(--atencao)}
   .et.cx{background:#f1f3f7;color:#334155}
   .rota .sep{color:var(--neutro);font-family:'DM Mono',monospace;font-size:11px}
+  .mix-info{margin-top:6px;padding:8px 11px;background:#eef7f0;border:1px solid #a8d5b5;border-radius:7px;font-size:12px;color:#2c6b3f;line-height:1.5}
   .conf-motivo{margin-top:6px;padding:8px 11px;background:#fff4e0;border:1px solid #f0c674;border-radius:7px;font-size:12px;color:#8a5a00;line-height:1.5}
   .alerta-parse{background:#fdf1e0;color:#92400e;font-family:'DM Mono',monospace;font-size:10px;padding:3px 7px;border-radius:5px;display:inline-block;margin-top:4px}
 
@@ -508,6 +509,11 @@
     <p class="sub">Cole a planilha do Google Sheets. O sistema lê a rota que já está escrita no nome do produto — cartucho, shrink e caixa — e calcula o resto.</p>
 
     <div class="bloco" style="padding:20px">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap">
+        <label class="rot" for="prog-data">Data de produção desta programação:</label>
+        <input type="date" id="prog-data" style="border:1px solid var(--linha);border-radius:7px;padding:8px 11px;font-family:'DM Mono',monospace;font-size:14px">
+        <span class="rot" style="color:var(--apagado)">é a data que aparecerá no Apontamento</span>
+      </div>
       <textarea class="cola" id="cola" spellcheck="false"></textarea>
       <p class="dica">Colunas, na ordem da sua planilha: Ordem · Descrição · U.M. · Observação · Plano · Real · Lote · Defeito<br>
       Selecione as linhas no Sheets, Ctrl+C, e cole aqui. As colunas vêm separadas por tabulação.</p>
@@ -597,7 +603,7 @@
     </div>
 
     <h2 class="titulo-secao" style="margin:30px 0 10px">Lotação por posto</h2>
-    <p class="sub" style="margin-bottom:14px">Quantos operadores em cada posto. Nos postos manuais, o número muda o padrão — a CR04 escala: 1 pessoa faz 80 caixas/dia, 2 fazem 160.</p>
+    <p class="sub" style="margin-bottom:14px">Quantos operadores em cada posto. O ritmo mostrado é a meta de cronômetro × fator de ritmo 0,9 (a marcha real da linha, com micro-paradas). Nos postos manuais, o número de pessoas muda o padrão — a CR04 faz 10 caixas/hora por pessoa.</p>
     <div class="bloco" style="margin-bottom:20px">
       <table><thead><tr>
         <th>Posto</th><th>Linha</th><th class="num">Ritmo</th><th class="num">Pessoas</th><th>Observação</th>
@@ -728,6 +734,21 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -751,13 +772,21 @@ const naoParaAlmoco = pid => NAO_PARA_ALMOCO.includes(pid);
    Reuniões e treinamentos atrasam o começo; o botão marca o início real. */
 const LINHA_INICIADA = {};    // {linhaId: timestamp do início real}
 
+/* Velocidade MEDIDA por código de embalagem, para processos manuais
+   onde o tempo depende do formato, não da máquina.
+   CT12 CX144 (mix de pedra): 144 pedras em 7min10s = 20,1 un/min.
+   DP72: ainda não medido. */
+const VEL_EMBALAGEM = {
+  'CT12 CX144': {velUnMin: 144 / (7 + 10/60), fonte:'medido: 144 pedras em 7min10s'}
+};
+
 /* ---------------- LOTAÇÃO POR POSTO ---------------- */
 /* Quantos operadores em cada posto. Muda o padrão dos postos manuais.
-   A CR04 escala: 1 pessoa = 80 cx/dia, 2 pessoas = 160 cx/dia (linear). */
+   A CR04 escala: 10 caixas/hora por pessoa. */
 const LOTACAO = {
   'GEL-ENV':  {pessoas:4, fixo:true},
   'GEL-CR01': {pessoas:1, fixo:true},
-  'GEL-CR04': {pessoas:1, fixo:false, cxDiaPorPessoa:80},   // selecionável na programação
+  'GEL-CR04': {pessoas:1, fixo:false, cxHoraPorPessoa:10},   // 10 caixas/hora por pessoa · selecionável
   'PAST-COR': {pessoas:4, fixo:true},
   'PAST-FP':  {pessoas:4, fixo:true},
   'PEDRA-PR': {pessoas:2, fixo:true},
@@ -1082,79 +1111,12 @@ function flash(msg){
 ================================================================= */
 (function seed(){
   const hoje = d => new Date(2026,6,14,...d).getTime();
-
-  // turnos
+  // Só os turnos (configuração). Sem lotes de exemplo — a fábrica começa limpa.
   LINHAS.forEach(li => TURNOS.push({
     id:'T-'+li.id, linha:li.id, nome:'Jornada',
-    inicio:hoje([7,17]), fim:hoje([17,17]),   // 9h trabalho + 1h almoço
+    inicio:hoje([7,17]), fim:hoje([17,17]),
     intervalo:60, pessoas: li.id==='PAST'?8 : li.id==='GEL'?6 : li.id==='LIQ'?7 : 5
   }));
-
-  const gerar = (lote, iniTs, fimTs, unProduzidas, refugoEmb) => {
-    registrar({tipo:'lote_iniciado', linha:lote.linha, lote:lote.id, ts:iniTs});
-    const fator = fatorEmb(lote.embalagem);
-    const caixas = Math.floor(unProduzidas / fator);
-    const dur = (fimTs ?? AGORA.getTime()) - iniTs - min(lote.arranque);
-    for(let i = 1; i <= caixas; i++){
-      registrar({tipo:'contagem', linha:lote.linha, lote:lote.id, qtdEmb:1,
-                 ts: iniTs + min(lote.arranque) + (dur * i / caixas)});
-    }
-    if(refugoEmb) registrar({tipo:'refugo', linha:lote.linha, lote:lote.id, qtdEmb:refugoEmb,
-                             ts: iniTs + min(lote.arranque) + dur*0.6});
-    if(fimTs) registrar({tipo:'lote_finalizado', linha:lote.linha, lote:lote.id, ts:fimTs});
-  };
-
-  // ---- GEL: um lote fechado + um rodando (gera um setup deduzido)
-  const g1 = criarLote({num:'000870', produtoId:'GEL-MAR', fragId:'MAR', embId:'CX24', qtd:5400, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR01'});
-  gerar(g1, hoje([6,15]), hoje([7,52]), 5400, 3);
-  registrar({tipo:'parada_iniciada',   linha:'GEL', lote:g1.id, motivo:'Falta de embalagem', ts:hoje([6,58])});
-  registrar({tipo:'parada_finalizada', linha:'GEL', lote:g1.id, ts:hoje([7,11])});
-
-  const g2 = criarLote({num:'000871', produtoId:'GEL-MAR', fragId:'MAR', embId:'CX24', qtd:6720, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR01'});
-  gerar(g2, hoje([8,14]), null, 4180, 0);   // rodando
-  registrar({tipo:'parada_iniciada',   linha:'GEL', lote:g2.id, motivo:'Ajuste de máquina', ts:hoje([10,30])});
-  registrar({tipo:'parada_finalizada', linha:'GEL', lote:g2.id, ts:hoje([10,39])});
-
-  // ---- PASTILHA: lote atrasado, rodando
-  const p1 = criarLote({num:'000452', produtoId:'PAST-LAV', fragId:'LAV', embId:'CX24', qtd:5040, linhaId:'PAST', turnoId:'T-PAST', postoId:'PAST-FP'});
-  gerar(p1, hoje([12,29]), null, 4560, 2);  // padrão 90 min, já em 103 -> vermelho
-
-  // ---- PEDRA: lote fechado + próximo programado -> SETUP EM CURSO
-  const pe1 = criarLote({num:'000508', produtoId:'PED-FLO', fragId:'FLO', embId:'CX12', qtd:3600, linhaId:'PEDRA', turnoId:'T-PEDRA', postoId:'PEDRA-FP'});
-  gerar(pe1, hoje([11,20]), hoje([13,50]), 3600, 5);
-  registrar({tipo:'parada_iniciada',   linha:'PEDRA', lote:pe1.id, motivo:'Falta de material', ts:hoje([12,40])});
-  registrar({tipo:'parada_finalizada', linha:'PEDRA', lote:pe1.id, ts:hoje([13,7])});
-  criarLote({num:'000509', produtoId:'PED-CIT', fragId:'CIT', embId:'CX12', qtd:3600, linhaId:'PEDRA', turnoId:'T-PEDRA', postoId:'PEDRA-FP'});
-  // nenhum lote_iniciado -> o gap desde 13:50 é setup, contando sozinho
-
-  // ---- GEL ENVASE: granel de lavanda rodando desde 05:40 (o "6 lavanda" da planilha)
-  const ge = criarLote({num:'025946', produtoId:'GEL-TP', fragId:'LAV', embId:'UN1',
-                        qtd:49200, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-ENV'});
-  gerar(ge, hoje([5,40]), null, 33800, 0);
-
-  // ---- GEL CR04: cartucho manual, 1 pessoa, 16 un/min — o posto que come o dia
-  const gc = criarLote({num:'001228', produtoId:'GEL-RAD', fragId:'LAV', embId:'CR04CX24',
-                        qtd:6624, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR04'});
-  gerar(gc, hoje([6,30]), null, 6528, 3);
-
-  // ---- PASTILHA CORTE
-  const pc = criarLote({num:'025964', produtoId:'PAST-GRA', fragId:'FLO', embId:'UN1',
-                        qtd:31968, linhaId:'PAST', turnoId:'T-PAST', postoId:'PAST-COR'});
-  gerar(pc, hoje([6,10]), null, 24444, 0);
-
-  // ---- PEDRA ENCARTUCHADEIRA
-  const pcr = criarLote({num:'025953', produtoId:'PED-CR', fragId:'CIT', embId:'CR01CX72',
-                         qtd:17064, linhaId:'PEDRA', turnoId:'T-PEDRA', postoId:'PEDRA-CR'});
-  gerar(pcr, hoje([9,15]), null, 12240, 42);
-
-  // ---- ORDEM DE ONTEM que não fechou: continua aberta hoje
-  criarLote({num:'025940', produtoId:'GEL-QOD', fragId:'LAV', embId:'CR01CX48',
-             qtd:9600, linhaId:'GEL', turnoId:'T-GEL', postoId:'GEL-CR01', dataProg:DIA_ONTEM});
-
-  // ---- LÍQUIDOS: rodando, mas PARADO agora
-  const l1 = criarLote({num:'000238', produtoId:'LIQ-EUC', fragId:'EUC', embId:'FD06', qtd:8100, linhaId:'LIQ', turnoId:'T-LIQ', postoId:'LIQ'});
-  gerar(l1, hoje([13,11]), null, 3240, 0);
-  registrar({tipo:'parada_iniciada', linha:'LIQ', lote:l1.id, motivo:'Falta de material', ts:hoje([14,0])});
 })();
 
 /* =================================================================
@@ -1449,14 +1411,17 @@ function pintaLotacao(){
   if(!tb) return;
   tb.innerHTML = QUADROS.map(q => {
     const cfg = LOTACAO[q.id] || {pessoas:1, fixo:true};
-    const escala = cfg.cxDiaPorPessoa
-      ? `${cfg.cxDiaPorPessoa} cx/dia por pessoa · atual ${cfg.pessoas * cfg.cxDiaPorPessoa} cx/dia`
+    const escala = cfg.cxHoraPorPessoa
+      ? `${cfg.cxHoraPorPessoa} cx/hora por pessoa · atual ${cfg.pessoas * cfg.cxHoraPorPessoa} cx/hora`
       : (q.manual ? 'posto manual' : 'ritmo de máquina');
     const vel = velDoQuadro(q, null);
+    const fr = (FATOR_RITMO[q.linha] || {v:1}).v;
+    const meta = q.meta;
     return `<tr>
       <td><b>${q.nome}</b></td>
       <td>${nomeLinha(q.linha)}</td>
-      <td class="num mono">${vel ? vel.toFixed(1) + ' <span class="rot">un/min</span>' : '<span class="rot">—</span>'}</td>
+      <td class="num mono">${vel ? vel.toFixed(1) + ' <span class="rot">un/min</span>' : '<span class="rot">—</span>'}
+        ${(meta && !q.manual) ? `<div class="rot" style="margin-top:3px">${meta} × ${fr} fator</div>` : ''}</td>
       <td class="num">
         <input type="number" min="0" max="12" value="${cfg.pessoas}" data-lot="${q.id}"
                style="width:64px;text-align:right;border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace">
@@ -1471,8 +1436,8 @@ function pintaLotacao(){
     if(!LOTACAO[pid]) LOTACAO[pid] = {pessoas:n, fixo:true};
     else LOTACAO[pid].pessoas = n;
     const cfg = LOTACAO[pid];
-    flash(cfg.cxDiaPorPessoa
-      ? `${q_nome(pid)}: ${n} pessoa(s) · ${n*cfg.cxDiaPorPessoa} cx/dia`
+    flash(cfg.cxHoraPorPessoa
+      ? `${q_nome(pid)}: ${n} pessoa(s) · ${n*cfg.cxHoraPorPessoa} cx/hora`
       : `${q_nome(pid)}: ${n} pessoa(s)`);
     pintaTudo();
   });
@@ -1557,14 +1522,15 @@ function pintaTurnos(){
    Cada linha da programação já é uma ordem num posto — não inventei nada.
 ================================================================= */
 const QUADROS = [
-  {id:'GEL-ENV',   linha:'GEL',   nome:'Envase',                curto:'Envase', meta:76.0},
-  {id:'GEL-CR01',  linha:'GEL',   nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:63.5},
+  {id:'GEL-ENV',   linha:'GEL',   nome:'Envase',                curto:'Envase', meta:78.0},
+  {id:'GEL-CR01',  linha:'GEL',   nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:63.0},
   {id:'GEL-CR04',  linha:'GEL',   nome:'CR04 · Cartucho manual',curto:'CR04',   meta:null, manual:true},
-  {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:66.7},
-  {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:62.0},
+  {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:68.0},
+  {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:65.0},
   {id:'PEDRA-PR',  linha:'PEDRA', nome:'Prensa',                curto:'Prensa', meta:50.0},
-  {id:'PEDRA-FP',  linha:'PEDRA', nome:'FP01 · Embaladora',     curto:'FP01',   meta:49.7},
-  {id:'PEDRA-CR',  linha:'PEDRA', nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:51.8},
+  {id:'PEDRA-FP',  linha:'PEDRA', nome:'FP01 · Embaladora',     curto:'FP01',   meta:50.0},
+  {id:'PEDRA-CR',  linha:'PEDRA', nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:52.0},
+  {id:'PEDRA-CX',  linha:'PEDRA', nome:'Cartela / Mix (manual)',  curto:'Mix',    meta:null, manualFixo:true},   // velocidade medida por embalagem, ver VEL_EMBALAGEM
   {id:'LIQ',       linha:'LIQ',   nome:'Envase de frasco',      curto:'Frasco', meta:7.0}   // limpador 120mL: 7 un/min medido
 ];
 
@@ -1630,13 +1596,22 @@ function velDoQuadro(q, lote){
     const pessoas = pessoasDoPosto(q.id);
     const un = lote ? fatorEmb(lote.embalagem) : 96;
     const cfg = LOTACAO[q.id] || {};
-    if(cfg.cxDiaPorPessoa){
-      // CR04: pessoas × 80 cx/dia ÷ horas de trabalho ÷ 60 min × un/caixa
-      const cxDia = pessoas * cfg.cxDiaPorPessoa;
-      const cxMin = cxDia / (JORNADA.horasTrabalho * 60);
+    if(cfg.cxHoraPorPessoa){
+      // CR04: pessoas × 10 caixas/hora ÷ 60 min × un/caixa
+      const cxMin = pessoas * cfg.cxHoraPorPessoa / 60;
       return cxMin * un;
     }
     return pessoas * CR_MAN_CXH * un / 60;
+  }
+  if(q.manualFixo){
+    // velocidade vem da EMBALAGEM medida, não do posto
+    if(lote){
+      const emb = EMBALAGENS.find(e => e.id === lote.embalagem);
+      const cod = emb ? emb.nome.split(' · ')[0] : null;
+      const vm = cod && VEL_EMBALAGEM[cod];
+      if(vm) return vm.velUnMin;
+    }
+    return q.meta || null;   // sem medição da embalagem: sem tempo
   }
   return q.meta ? q.meta * f : null;
 }
@@ -1666,35 +1641,36 @@ const PESSOAS = new Proxy({}, { get: (_,k) => pessoasDoPosto(k) });
    "perda de ritmo", que é o que a supervisora ataca.
 --------------------------------------------------------------- */
 const FATOR_RITMO = {
-  GEL:   {v:0.91, fonte:'49 bateladas reais'},
-  PAST:  {v:0.91, fonte:'provisório — herdado do Gel, falta medir'},
-  PEDRA: {v:0.91, fonte:'provisório — herdado do Gel, falta medir'},
-  LIQ:   {v:0.91, fonte:'provisório'}
+  GEL:   {v:0.9, fonte:'fator adotado'},
+  PAST:  {v:0.9, fonte:'fator adotado'},
+  PEDRA: {v:0.9, fonte:'fator adotado'},
+  LIQ:   {v:0.9, fonte:'fator adotado'}
 };
 
 const POSTOS = {
   GEL: {
-    granel: {nome:'Envase',          ideal:74.3},
+    granel: {nome:'Envase',          ideal:78.0},
     fp:     null,
-    cr:     {nome:'Encartuchadeira', ideal:63.5},
+    cr:     {nome:'Encartuchadeira', ideal:63.0},
     setup:  {preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}
   },
   PAST: {
-    // corte: Paula 68,7 · Priscila 64,7 → média 66,7 (mantido a pedido)
-    granel: {nome:'Corte',           ideal:66.7},
-    fp:     {nome:'Embaladora FP01', ideal:62.0},
+    granel: {nome:'Corte',           ideal:68.0},
+    fp:     {nome:'Embaladora FP01', ideal:65.0},
     // CR03: cartucho manual, 2 pessoas. Declarado FORA do gargalo.
     cr:     {nome:'Cartucho manual CR03', manual:true, restringe:false, pessoas:2},
     setup:  {preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}
   },
   PEDRA: {
     granel: {nome:'Prensa',          ideal:50.0},
-    fp:     {nome:'Embaladora FP01', ideal:49.7},
-    cr:     {nome:'Encartuchadeira', ideal:51.8},
+    fp:     {nome:'Embaladora FP01', ideal:50.0},
+    cr:     {nome:'Encartuchadeira', ideal:52.0},
     setup:  {preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}
   },
-  // Líquidos / Difusor / Limpador: sem medição ainda. Entram depois.
-  LIQ: {granel:null, fp:null, cr:null, setup:{preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}}
+  // Líquidos (frasco FR01): envase manual. Limpador 120mL medido: 7 un/min.
+  // Difusor e saponáceo ainda não medidos — herdam 7 provisoriamente até medir.
+  LIQ: {granel:{nome:'Envase de frasco', ideal:7.0}, fp:null, cr:null,
+        setup:{preparo:25, melhor:17, limpeza:42, limpezaMelhor:29}}
 };
 
 const CR_MAN_CXH = 10;         // CR04 — 10 caixas/hora por pessoa
@@ -1784,7 +1760,11 @@ function decodificaRota(desc){
   let motivoConferencia = null;
   if(conferir) motivoConferencia = 'Convenção mista de embalagem: aqui a caixa (CX) conta unidades, mas nas outras ordens conta cartuchos. Confirme se o fator ' + unPorEmb + ' un/caixa está certo antes de subir.';
 
-  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos, motivoConferencia};
+  // MIX: processo manual, caixa dividida em 4 fragrâncias iguais
+  const ehMix = /\bmix\b/i.test(desc);   // montagem manual, não passa por máquina
+  const mixInfo = ehMix ? {fragrancias:['floral','marine','lavanda','limão'], porFragrancia: unPorEmb ? Math.round(unPorEmb/4) : null} : null;
+
+  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos, motivoConferencia, mixInfo, ehMix};
 }
 
 /* Gargalo = o posto mais lento da ROTA. Rotas reais:
@@ -1817,6 +1797,16 @@ function gargaloDaRota(rota, linha, pessoasManual = 1){
       else if(P.cr) etapas.push({posto:P.cr.nome, ideal:P.cr.ideal, vel:P.cr.ideal * f});
       else return null;
     }
+  }
+
+  // MIX: as pedras já estão prontas, isto é SÓ montagem manual da caixa.
+  // Não passa por prensa nem flowpack. Se a embalagem foi medida, usa o tempo;
+  // senão, fica sem tempo (aguardando medição), mas nunca herda a máquina.
+  if(rota.ehMix){
+    const vm = rota.codEmb && VEL_EMBALAGEM[rota.codEmb] ? VEL_EMBALAGEM[rota.codEmb].velUnMin : null;
+    if(!vm) return null;   // mix não medido: sem tempo, mas não usa prensa/fp
+    return {posto:'Montagem manual da caixa mix', ideal:vm, vel:vm,
+            rota:[{posto:'Montagem manual', vel:vm}], fator:1, perdaRitmo:0};
   }
 
   const validas = etapas.filter(e => e.vel);
@@ -1880,8 +1870,10 @@ function lerProgramacao(){
     const postoId = postoDaOrdem(rota, linha, um);
     const lote = nums.length > 1 ? '' : (col.find(c => /^[0-9][A-Z]/.test(c)) || '');
 
+    const ehMixDesc = /\bmix\b/i.test(desc);
     return {ordem, desc, um, obs:'', linha, rota, qtdPlano, unidades, gargalo:g, tempo,
-            lote, defeito:'', postoId, bateladas: Math.max(1, parseLotes(lote).length)};
+            lote, defeito:'', postoId,
+            bateladas: ehMixDesc ? 1 : Math.max(1, parseLotes(lote).length)};
   }).filter(Boolean);
 
   pintaProgramacao();
@@ -1916,6 +1908,7 @@ function pintaProgramacao(){
         ${p.obs ? `<div class="rot" style="margin-top:4px">${p.obs}</div>` : ''}
         ${p.rota.avisos.map(a => `<div class="alerta-parse">⚠ ${a}</div>`).join('')}
         ${p.rota.motivoConferencia ? `<div class="conf-motivo">🔍 <b>Precisa de conferência:</b> ${p.rota.motivoConferencia}</div>` : ''}
+        ${p.rota.mixInfo ? `<div class="mix-info">🎨 <b>Mix manual:</b> ${p.rota.mixInfo.porFragrancia ? p.rota.mixInfo.porFragrancia + ' pedras de cada' : 'dividido'} — ${p.rota.mixInfo.fragrancias.join(', ')}</div>` : ''}
       </td>
       <td><span class="tag azul">${nomeLinha(p.linha)}</span></td>
       <td class="num">${nf(p.qtdPlano)} <span class="rot">${p.um}</span>
@@ -1944,6 +1937,8 @@ document.getElementById('btn-ler').onclick = lerProgramacao;
     di.onchange = () => { DIA_RESULTADO = di.value; pintaResultados && pintaResultados(); };
   }
 })();
+(() => { const pd = document.getElementById('prog-data');
+  if(pd){ const d = AGORA; pd.value = d.toISOString().slice(0,10); } })();
 let DIA_RESULTADO = AGORA.toISOString().slice(0,10);
 
 // exportar em PDF: imprime só a área de resultados
@@ -1954,8 +1949,7 @@ document.getElementById('btn-pdf') && (document.getElementById('btn-pdf').onclic
 });
 
 
-document.getElementById('cola').value = ["Ordem\tDescrição do produto\tU.M.\tObservação\tPlano", "\t1 Floral\t\t\t", "MTS026001 - 001\tGel sanitário floral TP\tUNID\t\t8100", "\t4 Limão\t\t\t", "MTS026002 - 001\tGel sanitário limão TP\tUNID\t\t34800", "MTS026003 - 001\tGel sanitário Triex floral 7g CR01 SH12 CX288\tCX\t\t18", "MTS026004 - 001\t\"\tGel sanitário Aplik floral 7g CR01 CX72\"\tCX\t\t41", "MTS026005 - 001\tGel sanitário Aplik limão 7g CR04 SH06 CX24\tCX\t25 LA + 25 LB + 3 LC\t53", "MTS026007 - 001\tGel sanitário Q-Odor limão 7g CR01 CX48\tCX\t\t352", "MTS026010 - 001\tBatelada pedra sanitária floral\tUNID\t\t0,5", "MTS026011 - 001\tPedra sanitária Aplik floral 25g FP01\tUNID\t\t2844", "MTS026018 - 001\tPedra sanitária Aplik mix 25g CT12 CX144\tCX\t\t79", "MTS026020 - 001\tPastilha sanitária lavanda FP01\tUNID\t\t31968", "MTS026021 - 001\tPastilha sanitária Bril Odor lavanda 10g CR03 CX36\tCX\t\t100", "MTS026023 - 001\tLimpador perfumado Aplik chá branco 120mL FR01 CX12\tCX\t\t116"].join('\n');
-lerProgramacao();
+/* campo de programação começa vazio */
 
 let PROG_SUBIDA = null;   // data da última subida — trava 1x/dia
 document.getElementById('btn-subir').onclick = () => {
@@ -1983,11 +1977,17 @@ document.getElementById('btn-subir').onclick = () => {
     PADROES[pid] = {vel:p.gargalo.vel, arranque:0, setupMeta:S.melhor};
 
     const postoId  = postoDaOrdem(p.rota, p.linha);
+    const dataProgSel = (() => {
+      const pd = document.getElementById('prog-data');
+      if(pd && pd.value){ const [aa,mm,dd] = pd.value.split('-'); return `${dd}/${mm}`; }
+      return DIA_HOJE;
+    })();
     const numOrdem = p.ordem.replace(/\D/g,'').slice(-6) || String(LOTES.length + 1);
 
     // GRANEL vira N bateladas. EMBALAGEM é uma ordem contínua.
     // O código do lote nasce VAZIO — quem preenche é a Paula, no dia.
-    const nBat = ehGranel(postoId)
+    const ehMixManual = p.rota.codEmb && VEL_EMBALAGEM[p.rota.codEmb];
+    const nBat = (ehGranel(postoId) && !ehMixManual)
       ? Math.max(1, Math.round(p.unidades / (TAM_BATELADA[p.linha] || 8000)))
       : 1;
     const qtdBat = Math.round(p.unidades / nBat);
@@ -1999,6 +1999,7 @@ document.getElementById('btn-subir').onclick = () => {
         fragId:    null,
         embId:     eid,
         qtd:       qtdBat,
+        dataProg:  dataProgSel,
         linhaId:   p.linha,
         turnoId:  'T-' + p.linha,
         postoId,
@@ -2018,21 +2019,7 @@ document.getElementById('btn-subir').onclick = () => {
 };
 
 /* planilha de exemplo — as linhas reais do dia 13/07 */
-document.getElementById('cola').value =
-`MTS025946 - 001\tGel sanitário lavanda TP\tUNID\t\t49200\t\t1V046A/B/C/D/E/F\t
-OP01228 - 001\tGel sanitário Radiante lavanda 7g CR04 SH06 CX24\tCX\t10 LA + 25 LB + 25 LC + 9 LD\t69\t73\t1V046A/B/C/D\t3 INT
-MTS025947 - 001\tGel sanitário Bril Odor lavanda 7g CR01 CX48\tCX\t\t95\t96\t1V046A\t38 INT
-MTS025948 - 001\tGel sanitário Q-Odor lavanda 7g CR01 CX48\tCX\t\t544\t\t1V046A/B/C/D/E\t30 INT
-MTS025949 - 001\tGel sanitário Aplik lavanda 7g CR01 SH12 CX72\tCX\t\t100\t\t1V046A/B/C/D/E/F\t
-MTS025950 - 001\tGel sanitário Aplik lavanda 7g CR01 CX72\tCX\t\t66\t\t1V046A/B/C/D/E/F\t
-MTS025952 - 001\tPedra sanitária Aplik limão 25g FP01\tUNID\t\t17064\t17208\t3L066A/B/C\tN/A
-MTS025953 - 001\tPedra sanitária Aplik limão 25g CR01 CX72\tCX\t\t237\t239\t3L066A/B/C\t42 INT
-MTS025962 - 001\tPedra sanitária Aplik mix 25g DP72\tCX\tNOITE (reporte 19 caixas)\t79\t\t3F073.28/3V079.26\t
-MTS025963 - 001\tPedra sanitária Aplik mix 25g CT12 CX144\tCX\tNOITE\t39\t\t3F073.28/3V079.26\t
-MTS025965 - 001\tPastilha sanitária Bril Odor floral 10g CR03 CX36\tCX\t\t13\t13\t2F019A\t1 INT
-MTS025966 - 001\tPastilha sanitária Aplik floral 10g CR03 CX24\tCX\túltimo lote cancelado - atraso extrusora\t425\t320\t2F019A/B/C\t14 INT`;
-
-lerProgramacao();
+/* campo de programação começa vazio */
 
 /* =================================================================
    RENDER — LINHA GEL (postos e gargalo)
@@ -2944,6 +2931,21 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
