@@ -1,4 +1,4 @@
-<!DOCTYPE html> 
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
 <meta charset="utf-8">
@@ -645,6 +645,7 @@
 </div>
 
 <script>
+
 
 
 
@@ -1974,9 +1975,12 @@ function apontarQuantidade(loteId, novoTotal){
    e registra a parada — sem abrir kiosk nenhum.
 ================================================================= */
 function pintaApontamento(){
-  // se ela está digitando, não redesenha — senão o campo some no meio da palavra
+  // não redesenha enquanto ela mexe num campo do apontamento — vale para
+  // digitar lote/quantidade (INPUT) E para o dropdown de setup aberto (SELECT).
+  // Sem o SELECT aqui, o relógio redesenhava por baixo e o menu fechava sozinho.
   const foco = document.activeElement;
-  if(foco && foco.closest && foco.closest('#apont') && foco.tagName === 'INPUT') return;
+  if(foco && foco.closest && foco.closest('#apont') &&
+     (foco.tagName === 'INPUT' || foco.tagName === 'SELECT' || foco.tagName === 'TEXTAREA')) return;
 
   document.getElementById('apont').innerHTML = LINHAS.map(li => {
     const qs = QUADROS.filter(q => q.linha === li.id);
@@ -2619,6 +2623,7 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
 
 
 </script>
