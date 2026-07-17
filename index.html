@@ -287,6 +287,7 @@
   .et.shr{background:#fdf1e0;color:var(--atencao)}
   .et.cx{background:#f1f3f7;color:#334155}
   .rota .sep{color:var(--neutro);font-family:'DM Mono',monospace;font-size:11px}
+  .shrink-info{margin-top:6px;padding:6px 10px;background:#eef2fb;border:1px solid #b8c8e8;border-radius:7px;font-size:12px;color:#2c4a7c}
   .mix-info{margin-top:6px;padding:8px 11px;background:#eef7f0;border:1px solid #a8d5b5;border-radius:7px;font-size:12px;color:#2c6b3f;line-height:1.5}
   .conf-motivo{margin-top:6px;padding:8px 11px;background:#fff4e0;border:1px solid #f0c674;border-radius:7px;font-size:12px;color:#8a5a00;line-height:1.5}
   .alerta-parse{background:#fdf1e0;color:#92400e;font-family:'DM Mono',monospace;font-size:10px;padding:3px 7px;border-radius:5px;display:inline-block;margin-top:4px}
@@ -749,6 +750,26 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -789,10 +810,17 @@ const LOTACAO = {
   'GEL-CR04': {pessoas:1, fixo:false, cxHoraPorPessoa:10},   // 10 caixas/hora por pessoa · selecionável
   'PAST-COR': {pessoas:4, fixo:true},
   'PAST-FP':  {pessoas:4, fixo:true},
-  'PEDRA-PR': {pessoas:2, fixo:true},
-  'PEDRA-CR': {pessoas:2, fixo:true},
-  'PEDRA-FP': {pessoas:1, fixo:true},   // shrink
-  'PEDRA-CX': {pessoas:2, fixo:true},   // cartela manual
+  'PAST-BLC': {pessoas:1, fixo:true},   // corte de bloco
+  'PAST-BLI': {pessoas:1, fixo:true},   // blister
+  'GEL-SHR':  {pessoas:1, fixo:true},   // shrink gel
+  'PAST-SHR': {pessoas:1, fixo:true},   // shrink pastilha
+  'GEL-CX':   {pessoas:1, fixo:true},   // caixa gel
+  'PAST-CX':  {pessoas:1, fixo:true},   // caixa pastilha
+  'PEDRA-PR':  {pessoas:2, fixo:true},   // prensa + embaladora = a MESMA dupla
+  'PEDRA-CR':  {pessoas:2, fixo:true},   // encartuchadeira
+  'PEDRA-SHR': {pessoas:1, fixo:true},   // shrink
+  'PEDRA-CX':  {pessoas:2, fixo:true},   // cartela (outra equipe)
+  'PEDRA-CXX': {pessoas:2, fixo:true},
   'LIQ':      {pessoas:2, fixo:false}   // limpador/difusor 2 · saponáceo 3
 };
 const SHRINK_PESSOAS = 1;   // posto de shrink, quando existir separado
@@ -913,7 +941,7 @@ function registrar(ev){
   EVENTOS.push(ev);
 }
 
-function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot}){
+function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot, rotaPostos}){
   const p = PADROES[produtoId];
   const lote = {
     id: 'L' + (LOTES.length + 1),
@@ -926,6 +954,8 @@ function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoI
     posto: postoId || (linhaId === 'GEL' ? 'GEL-ENV' : linhaId === 'PAST' ? 'PAST-FP'
                      : linhaId === 'PEDRA' ? 'PEDRA-FP' : 'LIQ'),
     dataProg: dataProg || DIA_HOJE,   // ordem de ontem não some à meia-noite
+    rotaPostos: rotaPostos || null,   // bloco: cadeia corte->blister->caixa
+    etapaLiberada: rotaPostos ? 0 : null,  // até que etapa o lote já pode aparecer
     loteFab: loteFab || '',           // 1V046A — vem da programação, editável
     seq:     seq || 1,                // batelada 1 de 6
     seqTot:  seqTot || 1,
@@ -968,8 +998,10 @@ function paradas(){                       // pareia parada_iniciada -> parada_fi
   return out;
 }
 
-function realizado(lote){                 // === vw_lote_realizado
-  const evs = ativos().filter(e => e.lote === lote.id);
+function realizado(lote, postoCtx){                 // === vw_lote_realizado
+  // para lotes em cascata (bloco), filtra eventos da etapa (posto) atual
+  const evs = ativos().filter(e => e.lote === lote.id &&
+    (!lote.rotaPostos || !postoCtx || !e.posto || e.posto === postoCtx));
   const ini = evs.find(e => e.tipo === 'lote_iniciado');
   if(!ini) return null;
   const fim = evs.find(e => e.tipo === 'lote_finalizado');
@@ -1525,12 +1557,19 @@ const QUADROS = [
   {id:'GEL-ENV',   linha:'GEL',   nome:'Envase',                curto:'Envase', meta:78.0},
   {id:'GEL-CR01',  linha:'GEL',   nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:63.0},
   {id:'GEL-CR04',  linha:'GEL',   nome:'CR04 · Cartucho manual',curto:'CR04',   meta:null, manual:true},
+  {id:'GEL-SHR',   linha:'GEL',   nome:'Shrink',                curto:'Shrink', meta:null},   // etapa de shrink · medir
+  {id:'GEL-CX',    linha:'GEL',   nome:'Caixa',                 curto:'Caixa',  meta:null},   // encaixotamento
   {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:68.0},
   {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:65.0},
-  {id:'PEDRA-PR',  linha:'PEDRA', nome:'Prensa',                curto:'Prensa', meta:50.0},
-  {id:'PEDRA-FP',  linha:'PEDRA', nome:'FP01 · Embaladora',     curto:'FP01',   meta:50.0},
+  {id:'PAST-BLC',  linha:'PAST',  nome:'Corte de bloco',        curto:'Bloco',  meta:null},   // bloco sanitário · medir amanhã
+  {id:'PAST-BLI',  linha:'PAST',  nome:'Blister',               curto:'Blister',meta:null},   // bloco sanitário · medir amanhã
+  {id:'PAST-SHR',  linha:'PAST',  nome:'Shrink',                curto:'Shrink', meta:null},   // etapa de shrink · medir
+  {id:'PAST-CX',   linha:'PAST',  nome:'Caixa',                 curto:'Caixa',  meta:null},   // encaixotamento
+  {id:'PEDRA-PR',  linha:'PEDRA', nome:'Prensa / Embaladora',   curto:'Prensa', meta:50.0},
   {id:'PEDRA-CR',  linha:'PEDRA', nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:52.0},
-  {id:'PEDRA-CX',  linha:'PEDRA', nome:'Cartela / Mix (manual)',  curto:'Mix',    meta:null, manualFixo:true},   // velocidade medida por embalagem, ver VEL_EMBALAGEM
+  {id:'PEDRA-SHR', linha:'PEDRA', nome:'Shrink',                curto:'Shrink', meta:null},
+  {id:'PEDRA-CX',  linha:'PEDRA', nome:'Cartela / Mix (manual)',curto:'Cartela',meta:null, manualFixo:true},
+  {id:'PEDRA-CXX', linha:'PEDRA', nome:'Caixa',                 curto:'Caixa',  meta:null},   // velocidade medida por embalagem, ver VEL_EMBALAGEM
   {id:'LIQ',       linha:'LIQ',   nome:'Envase de frasco',      curto:'Frasco', meta:7.0}   // limpador 120mL: 7 un/min medido
 ];
 
@@ -1544,19 +1583,22 @@ const quadro = id => QUADROS.find(q => q.id === id);
    Por isso turnos e paradas do Gel se cadastram separados. */
 const AREAS = [
   {id:'GEL-ENVASE', linha:'GEL',   nome:'Gel · Envase',     postos:['GEL-ENV']},
-  {id:'GEL-EMB',    linha:'GEL',   nome:'Gel · Embalagem',  postos:['GEL-CR01','GEL-CR04']},
-  {id:'PAST',       linha:'PAST',  nome:'Pastilha',         postos:['PAST-COR','PAST-FP']},
-  {id:'PEDRA',      linha:'PEDRA', nome:'Pedra',            postos:['PEDRA-PR','PEDRA-FP','PEDRA-CR','PEDRA-CX']},
+  {id:'GEL-EMB',    linha:'GEL',   nome:'Gel · Embalagem',  postos:['GEL-CR01','GEL-CR04','GEL-SHR','GEL-CX']},
+  {id:'PAST',       linha:'PAST',  nome:'Pastilha',         postos:['PAST-COR','PAST-FP','PAST-BLC','PAST-BLI','PAST-SHR','PAST-CX']},
+  {id:'PEDRA',      linha:'PEDRA', nome:'Pedra',            postos:['PEDRA-PR','PEDRA-CR','PEDRA-SHR','PEDRA-CX','PEDRA-CXX']},
   {id:'LIQ',        linha:'LIQ',   nome:'Líquidos',         postos:['LIQ']}
 ];
 
 /* Só o GRANEL trabalha em bateladas. A embalagem roda contínuo e consome
    as bateladas do pulmão — por isso ela registra o lote CONSUMIDO, não o próprio. */
-const POSTOS_GRANEL = ['GEL-ENV','PAST-COR','PEDRA-PR'];
+const POSTOS_GRANEL = ['GEL-ENV','PAST-COR','PEDRA-PR','PAST-BLC'];   // corte de bloco também é granel
 const ehGranel = pid => POSTOS_GRANEL.includes(pid);
 
 /* tamanho típico da batelada, por linha (cadastro) */
-const TAM_BATELADA = {GEL:8200, PAST:8000, PEDRA:5700, LIQ:8000};
+const TAM_BATELADA = {GEL:8200, PAST:8000, PEDRA:5688, LIQ:8000};   // pedra: lote cheio 5688 · meio lote 2844
+const TAM_LOTE_BLOCO = 1526;   // cada lote de bloco sanitário rende 1526 unidades
+const POSTO_SHRINK = {GEL:'GEL-SHR', PAST:'PAST-SHR', PEDRA:'PEDRA-SHR'};   // posto de shrink por linha (cascata)
+const POSTO_CAIXA  = {GEL:'GEL-CX',  PAST:'PAST-CX', PEDRA:'PEDRA-CXX'};    // posto de encaixotamento por linha
 
 /* tipos de setup — o TEMPO é medido, o TIPO é apontado */
 const TIPOS_SETUP = [
@@ -1568,6 +1610,9 @@ const TIPOS_SETUP = [
 const SETUP_INFO = {};   // {posto: {tipo, obs}} — o que a Paula classificou
 
 /* de qual posto é esta ordem? sai da própria rota do produto */
+function ehCaixaOrdem(p){
+  return p.rota.codEmb && /^CX/.test(p.rota.codEmb);
+}
 function postoDaOrdem(rota, linha, um){
   const ehCaixa = (um || '').toUpperCase() === 'CX';
   if(linha === 'GEL'){
@@ -1576,13 +1621,17 @@ function postoDaOrdem(rota, linha, um){
     return ehCaixa ? 'GEL-CR01' : 'GEL-ENV';
   }
   if(linha === 'PAST'){
+    // BLOCO: sempre entra pelo CORTE, que define os lotes de 1526.
+    // Blister, shrink e caixa são etapas seguintes do mesmo lote.
+    if(rota.ehBloco) return 'PAST-BLC';
     if(rota.codPrim || ehCaixa)       return 'PAST-FP';
     return 'PAST-COR';
   }
   if(linha === 'PEDRA'){
-    if(rota.codPrim && rota.codPrim.startsWith('CR')) return 'PEDRA-CR';
-    if(rota.codPrim && rota.codPrim.startsWith('FP')) return 'PEDRA-FP';
-    return ehCaixa ? 'PEDRA-CX' : 'PEDRA-PR';
+    // Mix/cartela usa pedras já prontas -> entra direto na cartela
+    if(rota.codEmb && VEL_EMBALAGEM[rota.codEmb]) return 'PEDRA-CX';
+    // todo o resto entra pela Prensa/Embaladora (a dupla)
+    return 'PEDRA-PR';
   }
   return 'LIQ';
 }
@@ -1698,19 +1747,23 @@ function parseLotes(str){
 function linhaDoProduto(desc){
   const d = desc.toLowerCase();
   if(d.includes('gel'))                                  return 'GEL';
-  if(d.includes('pastilha'))                             return 'PAST';
+  if(d.includes('pastilha') || d.includes('bloco'))      return 'PAST';   // bloco sanitário roda na pastilha
   if(d.includes('pedra') || d.includes('naftalina'))     return 'PEDRA';
   return 'LIQ';   // limpador perfumado, difusor de ambientes, saponáceo
 }
 
 function decodificaRota(desc){
-  const prim = desc.match(/\b(CR|FP|FR)(\d{2})\b/i);
+  const prim = desc.match(/\b(CR|FP|FR|BL)(\d{2})\b/i);   // BL = blister (bloco sanitário)
   const shr  = desc.match(/\bSH(\d{2})\b/i);
   const cx   = desc.match(/\bCX(\d{1,4})\b/i);
   const dp   = desc.match(/\bDP(\d{1,4})\b/i);
   const ct   = desc.match(/\bCT(\d{1,4})\b/i);
+  const _ehBloco = /\bbloco\b/i.test(desc);
 
-  const etapas = [{tipo:'granel', cod:'UNID', rot:'Granel'}];
+  // BLOCO: começa no corte de bloco. O Blister vem do código BL01 no nome.
+  const etapas = _ehBloco
+    ? [{tipo:'granel', cod:'BLC', rot:'Corte de bloco'}]
+    : [{tipo:'granel', cod:'UNID', rot:'Granel'}];
   const avisos = [];
 
   let fatorPrim = 1, codPrim = null, manual = false;
@@ -1718,8 +1771,11 @@ function decodificaRota(desc){
     codPrim   = (prim[1] + prim[2]).toUpperCase();
     fatorPrim = parseInt(prim[2], 10);          // CR04 → 4 · CR03 → 3 · CR01/FP01 → 1
     manual    = CR_MANUAIS.includes(codPrim);
+    const _tp = prim[1].toUpperCase();
     etapas.push({tipo:'prim', cod:codPrim,
-      rot: prim[1].toUpperCase() === 'FP' ? `Flowpack ${fatorPrim} un`
+      rot: _tp === 'FP' ? `Flowpack ${fatorPrim} un`
+         : _tp === 'FR' ? `Frasco ${fatorPrim} un`
+         : _tp === 'BL' ? `Blister ${fatorPrim} un`
          : `Cartucho ${fatorPrim} un${manual ? ' · manual' : ''}`});
   }
 
@@ -1762,9 +1818,11 @@ function decodificaRota(desc){
 
   // MIX: processo manual, caixa dividida em 4 fragrâncias iguais
   const ehMix = /\bmix\b/i.test(desc);   // montagem manual, não passa por máquina
+  const temShrink = /\bSH\d{2}\b/i.test(desc);   // ordem passa pela etapa de shrink
+  const ehBloco = /\bbloco\b/i.test(desc);   // bloco sanitário: rota corte->blister->caixa, lote 1526
   const mixInfo = ehMix ? {fragrancias:['floral','marine','lavanda','limão'], porFragrancia: unPorEmb ? Math.round(unPorEmb/4) : null} : null;
 
-  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos, motivoConferencia, mixInfo, ehMix};
+  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos, motivoConferencia, mixInfo, ehMix, temShrink, ehBloco};
 }
 
 /* Gargalo = o posto mais lento da ROTA. Rotas reais:
@@ -1909,6 +1967,7 @@ function pintaProgramacao(){
         ${p.rota.avisos.map(a => `<div class="alerta-parse">⚠ ${a}</div>`).join('')}
         ${p.rota.motivoConferencia ? `<div class="conf-motivo">🔍 <b>Precisa de conferência:</b> ${p.rota.motivoConferencia}</div>` : ''}
         ${p.rota.mixInfo ? `<div class="mix-info">🎨 <b>Mix manual:</b> ${p.rota.mixInfo.porFragrancia ? p.rota.mixInfo.porFragrancia + ' pedras de cada' : 'dividido'} — ${p.rota.mixInfo.fragrancias.join(', ')}</div>` : ''}
+        ${p.rota.temShrink ? `<div class="shrink-info">📦 Passa pela etapa de <b>Shrink</b></div>` : ''}
       </td>
       <td><span class="tag azul">${nomeLinha(p.linha)}</span></td>
       <td class="num">${nf(p.qtdPlano)} <span class="rot">${p.um}</span>
@@ -1987,8 +2046,42 @@ document.getElementById('btn-subir').onclick = () => {
     // GRANEL vira N bateladas. EMBALAGEM é uma ordem contínua.
     // O código do lote nasce VAZIO — quem preenche é a Paula, no dia.
     const ehMixManual = p.rota.codEmb && VEL_EMBALAGEM[p.rota.codEmb];
+    const tamLote = p.rota.ehBloco ? TAM_LOTE_BLOCO : (TAM_BATELADA[p.linha] || 8000);
+    // rota de postos em CASCATA:
+    // - bloco: corte -> blister -> (shrink) -> caixa
+    // - produto com shrink: entrada -> shrink -> caixa (mesmo posto de entrada fecha a caixa)
+    let rotaBloco = null;
+    if(p.rota.ehBloco){
+      rotaBloco = ['PAST-BLC', 'PAST-BLI', ...(p.rota.temShrink ? ['PAST-SHR'] : []), 'PAST-FP'];
+    } else if(p.linha === 'PEDRA'){
+      // PEDRA — cascata conforme o caminho de embalagem.
+      // Regra: cartela (CT) e encartuchadeira (CR) nunca coexistem.
+      const r = p.rota;
+      const temCT = r.codEmb && /^CT/.test(r.codEmb);       // vai pra cartela
+      const temCR = r.codPrim && r.codPrim.startsWith('CR'); // vai pra encartuchadeira
+      const ehMixPronto = r.codEmb && VEL_EMBALAGEM[r.codEmb]; // mix usa pedras prontas
+      if(ehMixPronto){
+        rotaBloco = ['PEDRA-CX', 'PEDRA-CXX'];               // cartela -> caixa (outra equipe)
+      } else if(temCR){
+        // Prensa/Emb -> Encartuchadeira -> (Shrink) -> Caixa
+        rotaBloco = ['PEDRA-PR', 'PEDRA-CR',
+          ...(r.temShrink ? ['PEDRA-SHR'] : []), 'PEDRA-CXX'];
+      } else if(temCT){
+        // Prensa/Emb -> Cartela -> Caixa
+        rotaBloco = ['PEDRA-PR', 'PEDRA-CX', 'PEDRA-CXX'];
+      } else if(ehCaixaOrdem(p)){
+        // Naftalina/pedra direto pra caixa: Prensa/Emb -> Caixa
+        rotaBloco = ['PEDRA-PR', 'PEDRA-CXX'];
+      }
+      // pedra FP01 pura (granel) fica só na Prensa/Emb, sem cascata
+    } else if(p.rota.temShrink && POSTO_SHRINK[p.linha]){
+      // produto com shrink: entrada -> shrink -> caixa (cada etapa é um posto próprio)
+      const shr = POSTO_SHRINK[p.linha];
+      const cx  = POSTO_CAIXA[p.linha];
+      rotaBloco = cx ? [postoId, shr, cx] : [postoId, shr];
+    }
     const nBat = (ehGranel(postoId) && !ehMixManual)
-      ? Math.max(1, Math.round(p.unidades / (TAM_BATELADA[p.linha] || 8000)))
+      ? Math.max(1, Math.round(p.unidades / tamLote))
       : 1;
     const qtdBat = Math.round(p.unidades / nBat);
 
@@ -2000,6 +2093,7 @@ document.getElementById('btn-subir').onclick = () => {
         embId:     eid,
         qtd:       qtdBat,
         dataProg:  dataProgSel,
+        rotaPostos: rotaBloco,
         linhaId:   p.linha,
         turnoId:  'T-' + p.linha,
         postoId,
@@ -2250,8 +2344,15 @@ function pintaApontamento(){
       ${!iniciada ? `<div class="ap-aviso-inicio">Programação do dia abaixo. A contagem só vale após <b>Iniciar linha</b>.</div>` : ''}
       ${qs.map(q => {
         // TODAS as ordens deste posto ainda abertas — inclusive as de ontem
-        const ordens = LOTES.filter(l => l.posto === q.id && l.status !== 'fim')
-          .map(l => ({l, r: realizado(l)}))
+        const ordens = LOTES.filter(l => {
+            if(l.status === 'fim') return false;
+            // lote normal: posto fixo
+            if(!l.rotaPostos) return l.posto === q.id;
+            // lote de bloco: aparece nos postos da rota até a etapa liberada
+            const idx = l.rotaPostos.indexOf(q.id);
+            return idx >= 0 && idx <= l.etapaLiberada;
+          })
+          .map(l => ({l, r: realizado(l, q.id)}))
           .filter(x => !x.r || !x.r.finalizado);
 
         const rodando = ordens.find(x => x.r);
@@ -2376,7 +2477,7 @@ function pintaApontamento(){
                   ? '<span class="tag ruim">cancelada</span>'
                   : !r
                     ? (proxima
-                        ? `<button class="bt iniciar" data-ini="${l.id}">Iniciar</button>
+                        ? `<button class="bt iniciar" data-ini="${l.id}" data-posto-ctx="${q.id}">Iniciar</button>
                            <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`
                         : `<span class="rot">na fila</span>
                            <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso);padding:5px 10px;font-size:11px">Cancelar</button>`)
@@ -2446,9 +2547,24 @@ function pintaApontamento(){
   const ev = (sel, fn) => document.querySelectorAll('#apont ' + sel).forEach(b =>
     b.onclick = () => { fn(b); pintaTudo(); });
 
-  ev('[data-ini]', b => { const l = LOTES.find(x => x.id === b.dataset.ini);
-    registrar({tipo:'lote_iniciado', linha:l.linha, lote:l.id, origem:'supervisao'});
-    flash(`Ordem ${l.numero} iniciada`); });
+  ev('[data-ini]', b => {
+    const l = LOTES.find(x => x.id === b.dataset.ini);
+    const posto = b.dataset.postoCtx || l.posto;
+    registrar({tipo:'lote_iniciado', linha:l.linha, lote:l.id, origem:'supervisao', posto});
+    // CASCATA do bloco: ao iniciar uma etapa, libera a próxima
+    if(l.rotaPostos){
+      const idx = l.rotaPostos.indexOf(posto);
+      if(idx >= 0 && idx === l.etapaLiberada && idx < l.rotaPostos.length - 1){
+        l.etapaLiberada = idx + 1;
+        const prox = quadro(l.rotaPostos[idx + 1]);
+        flash(`${l.loteFab || 'Lote'} liberado para ${prox ? prox.nome : 'próxima etapa'}`);
+      } else {
+        flash(`Etapa iniciada`);
+      }
+    } else {
+      flash(`Ordem ${l.numero} iniciada`);
+    }
+  });
 
   ev('[data-fim]', b => {
     const l = LOTES.find(x => x.id === b.dataset.fim);
@@ -2931,6 +3047,26 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
