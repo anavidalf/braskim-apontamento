@@ -291,6 +291,12 @@
   .mix-info{margin-top:6px;padding:8px 11px;background:#eef7f0;border:1px solid #a8d5b5;border-radius:7px;font-size:12px;color:#2c6b3f;line-height:1.5}
   .sub-produto td{background:#fafbfc;font-size:12px;color:var(--apagado);border-top:1px dashed var(--linha)}
   .sub-produto td:first-child{color:var(--tinta);font-weight:500}
+  .chip-lanc{display:inline-flex;align-items:center;gap:5px;background:#eef4ff;border:1px solid #d6e2f7;
+    border-radius:20px;padding:3px 5px 3px 10px;font-size:11.5px;color:#2c3a4d}
+  .chip-lanc .x-lanc{border:none;background:none;color:#8a9099;cursor:pointer;font-size:14px;
+    line-height:1;padding:0 4px;border-radius:50%}
+  .chip-lanc .x-lanc:hover{background:#ffd9d9;color:var(--atraso)}
+  .lanc-hist td{border-top:none !important;background:#fbfcfd}
   .conf-motivo{margin-top:6px;padding:8px 11px;background:#fff4e0;border:1px solid #f0c674;border-radius:7px;font-size:12px;color:#8a5a00;line-height:1.5}
   .alerta-parse{background:#fdf1e0;color:#92400e;font-family:'DM Mono',monospace;font-size:10px;padding:3px 7px;border-radius:5px;display:inline-block;margin-top:4px}
 
@@ -861,6 +867,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1026,7 +1046,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '20/07 16:48';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '20/07 18:18';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1097,10 +1117,15 @@ async function entrarComGoogle(){
     prov.setCustomParameters({prompt: 'select_account'});
     await AUTH.signInWithPopup(prov);
   } catch(e){
-    const m = e.code === 'auth/popup-closed-by-user' ? 'Login cancelado.'
-            : e.code === 'auth/popup-blocked' ? 'O navegador bloqueou a janela. Libere os pop-ups e tente de novo.'
-            : e.code === 'auth/operation-not-allowed' ? 'O login Google não está habilitado no Firebase.'
-            : 'Não foi possível entrar: ' + e.message;
+    const m =
+        e.code === 'auth/popup-closed-by-user'  ? 'Login cancelado.'
+      : e.code === 'auth/popup-blocked'         ? 'O navegador bloqueou a janela de login. Libere os pop-ups para este site e tente de novo.'
+      : e.code === 'auth/configuration-not-found' || e.code === 'auth/operation-not-allowed'
+          ? 'O login com Google ainda não foi ativado no Firebase. No console: Criação → Authentication → Começar → Google → Ativar.'
+      : e.code === 'auth/unauthorized-domain'
+          ? 'Este endereço não está autorizado no Firebase. No console: Authentication → Settings → Domínios autorizados.'
+      : e.code === 'auth/network-request-failed' ? 'Sem conexão com a internet.'
+      : 'Não foi possível entrar: ' + (e.message || e.code);
     mostraPortao(null, m);
   }
 }
@@ -1242,6 +1267,7 @@ async function ligarNuvem(){
     evt.forEach(d  => { const e = d.data(); if(!EVENTOS.some(x => x.id === e.id)) EVENTOS.push(e); });
     // o contador de eventos continua de onde parou
     seqEvento = EVENTOS.reduce((m,e) => Math.max(m, e.id || 0), 0);
+    SEQ_PROG  = LOTES.reduce((m,l) => Math.max(m, l.ordemProg || 0), 0);
 
     NUVEM_PRONTA = true;
     statusNuvem('ok', 'Salvo na nuvem');
@@ -1299,6 +1325,7 @@ function registrar(ev){
   nuvemSalvar('eventos', ev.id, ev);
 }
 
+let SEQ_PROG = 0;   // ordem em que as ordens foram coladas — preserva a sequência da Priscila
 function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot, rotaPostos}){
   const p = PADROES[produtoId];
   const lote = {
@@ -1314,7 +1341,8 @@ function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoI
     dataProg: dataProg || DIA_HOJE,   // ordem de ontem não some à meia-noite
     rotaPostos: rotaPostos || null,   // bloco: cadeia corte->blister->caixa
     etapaLiberada: rotaPostos ? 0 : null,  // até que etapa o lote já pode aparecer
-    loteFab: loteFab || '',           // 1V046A — vem da programação, editável
+    ordemProg: ++SEQ_PROG,            // sequência da programação (não reordena ao voltar da nuvem)
+    loteFab: loteFab || '',           // vem da programação, editável
     seq:     seq || 1,                // batelada 1 de 6
     seqTot:  seqTot || 1,
     prevista: qtd,
@@ -1372,13 +1400,18 @@ function realizado(lote, postoCtx){                 // === vw_lote_realizado
     .filter(p => p.lote === lote.id)
     .reduce((s,p) => s + p.duracao, 0);
 
-  const bruto   = ((fim ? fim.ts : AGORA.getTime()) - ini.ts) / 60000;
-  const liquido = bruto - tParado;
+  // Tempo corrido nunca é negativo. Se o início ficou à frente do relógio
+  // (hora de início informada para mais tarde), o lote ainda não começou.
+  const bruto   = Math.max(0, ((fim ? fim.ts : AGORA.getTime()) - ini.ts) / 60000);
+  // O tempo parado não pode passar do tempo corrido.
+  const parado  = Math.min(bruto, Math.max(0, tParado));
+  const liquido = Math.max(0, bruto - parado);
+  const aindaNaoComecou = ini.ts > AGORA.getTime();
 
   return {
     lote, inicio:ini.ts, fim: fim ? fim.ts : null,
     produzida, refugo,
-    bruto, tParado, liquido,
+    bruto, tParado: parado, liquido, aindaNaoComecou,
     eficiencia: liquido > 0 ? lote.padraoMin / liquido : null,
     delta: lote.padraoMin - liquido,          // (+) folga  (−) atraso
     pct: Math.min(100, produzida / lote.prevista * 100),
@@ -1453,9 +1486,34 @@ function setupEmCurso(linhaId){           // setup rolando agora = terminou lote
 }
 
 /* --- estado consolidado de cada linha  === vw_linha_agora --- */
+
+/* O lote que está rodando AGORA num posto: entre os abertos, o de início
+   mais recente. (Antes pegava o primeiro da lista, que podia ser um lote
+   antigo ainda aberto — o Dashboard mostrava lote diferente do Apontamento.) */
+function inicioDoLote(l, postoCtx){
+  const e = ativos().find(x => x.lote === l.id && x.tipo === 'lote_iniciado' &&
+                              (!postoCtx || !x.posto || x.posto === postoCtx));
+  return e ? e.ts : 0;
+}
+function loteRodandoNoPosto(postoId){
+  return LOTES
+    .filter(l => l.posto === postoId ||
+                 (l.rotaPostos && l.rotaPostos.indexOf(postoId) >= 0 &&
+                  l.rotaPostos.indexOf(postoId) <= l.etapaLiberada))
+    .map(l => ({l, r: realizado(l, postoId)}))
+    .filter(x => x.r && !x.r.finalizado)
+    .sort((a,b) => inicioDoLote(b.l, postoId) - inicioDoLote(a.l, postoId))
+    .map(x => x.r)[0];
+}
+
 function estadoLinha(linhaId){
+  // Entre os lotes abertos da linha, o que interessa é o que está rodando AGORA:
+  // ordena pelo início mais recente. (Antes pegava o primeiro da lista, que podia
+  // ser um lote antigo ainda aberto — mostrava lote diferente do apontamento.)
   const emAndamento = LOTES.filter(l => l.linha === linhaId)
-    .map(realizado).filter(r => r && !r.finalizado)[0];
+    .filter(l => { const r = realizado(l); return r && !r.finalizado; })
+    .sort((a,b) => inicioDoLote(b) - inicioDoLote(a))
+    .map(realizado)[0];
 
   if(emAndamento){
     const s = emAndamento.parado ? 'parada'
@@ -1633,8 +1691,8 @@ function pintaDashboard(){
     const cxPrevTot = Math.ceil(lote.prevista / fator);
     const cxReal    = Math.floor(r.produzida / fator);
 
-    /* CAIXAS QUE DEVERIAM EXISTIR NESTE MOMENTO */
-    const cxDeviaTer = Math.floor(r.liquido * vel / fator);
+    /* CAIXAS QUE DEVERIAM EXISTIR NESTE MOMENTO (nunca negativo) */
+    const cxDeviaTer = Math.max(0, Math.floor(r.liquido * vel / fator));
     const desvioCx   = cxReal - cxDeviaTer;
 
     const s = r.parado ? 'parada'
@@ -1680,9 +1738,10 @@ function pintaDashboard(){
       </div>
 
       <div class="lote-fab">
-        <label for="lf-${q.id}">Lote em andamento</label>
-        <input id="lf-${q.id}" data-lf="${q.id}" value="${LOTE_FAB[q.id] || ''}"
-               placeholder="1V046A" spellcheck="false">
+        <label>Lote em andamento</label>
+        <div class="mono" style="font-size:14px;font-weight:600;padding:5px 0">
+          ${lote.loteFab || '<span class="rot" style="font-weight:400">lote não informado</span>'}
+        </div>
         <span class="rot">Ordem ${lote.numero}</span>
       </div>
 
@@ -1740,7 +1799,7 @@ function pintaDashboard(){
   document.getElementById('grade').innerHTML = LINHAS.map(li => {
     const qs = QUADROS.filter(q => q.linha === li.id).map(q => ({
       q,
-      r: LOTES.filter(l => l.posto === q.id).map(realizado).filter(x => x && !x.finalizado)[0]
+      r: loteRodandoNoPosto(q.id)
     }));
     if(!qs.length) return '';
 
@@ -1763,9 +1822,7 @@ function pintaDashboard(){
 
   
 
-  document.querySelectorAll('[data-lf]').forEach(i => {
-    i.oninput = () => { LOTE_FAB[i.dataset.lf] = i.value; };
-  });
+  // (o lote é digitado no Apontamento; o Dashboard só espelha)
 }
 
 /* =================================================================
@@ -2131,7 +2188,6 @@ function velDoQuadro(q, lote){
 }
 
 /* lote de fabricação em andamento (1V046A...) — preenchido pela supervisora */
-const LOTE_FAB = {};
 const PESSOAS = new Proxy({}, { get: (_,k) => pessoasDoPosto(k) });
 
 /* =================================================================
@@ -2539,9 +2595,8 @@ document.getElementById('btn-subir').onclick = () => {
     let rotaBloco = null;
     if(p.rota.ehBloco){
       // cascata a partir da etapa que ESTA ordem representa
-      if(postoId === 'PAST-BLC')      rotaBloco = ['PAST-BLC','PAST-BLI'];        // corte -> blister
-      else if(postoId === 'PAST-SHR') rotaBloco = ['PAST-SHR','PAST-CX'];         // shrink -> caixa
-      else                             rotaBloco = null;                           // caixa: etapa única
+      if(postoId === 'PAST-BLC')      rotaBloco = ['PAST-BLC','PAST-BLI'];   // corte -> blister
+      else                             rotaBloco = null;   // shrink e caixa: etapa única (o shrink já sai encaixotado)
     } else if(p.linha === 'PEDRA'){
       // PEDRA — cascata conforme o caminho de embalagem.
       // Regra: cartela (CT) e encartuchadeira (CR) nunca coexistem.
@@ -2552,8 +2607,9 @@ document.getElementById('btn-subir').onclick = () => {
       if(ehMixPronto){
         rotaBloco = ['PEDRA-CX', 'PEDRA-CXX'];               // cartela -> caixa (outra equipe)
       } else if(temCR){
-        // ordem de encartuchadeira: Encart -> (Shrink) -> Caixa
-        rotaBloco = ['PEDRA-CR', ...(r.temShrink ? ['PEDRA-SHR'] : []), 'PEDRA-CXX'];
+        // ordem de encartuchadeira: Encart -> Shrink (o shrink conclui, já sai encaixotado)
+        // sem shrink, o encaixotamento é etapa própria
+        rotaBloco = r.temShrink ? ['PEDRA-CR','PEDRA-SHR'] : ['PEDRA-CR','PEDRA-CXX'];
       } else if(temCT){
         // ordem de cartela: Cartela -> Caixa
         rotaBloco = ['PEDRA-CX', 'PEDRA-CXX'];
@@ -2563,10 +2619,9 @@ document.getElementById('btn-subir').onclick = () => {
       }
       // pedra FP01 pura (granel) fica só na Prensa/Emb, sem cascata
     } else if(p.rota.temShrink && POSTO_SHRINK[p.linha]){
-      // produto com shrink: entrada -> shrink -> caixa (cada etapa é um posto próprio)
-      const shr = POSTO_SHRINK[p.linha];
-      const cx  = POSTO_CAIXA[p.linha];
-      rotaBloco = cx ? [postoId, shr, cx] : [postoId, shr];
+      // produto com shrink: entrada -> shrink. O shrink CONCLUI o produto
+      // (sai encaixotado de lá), então não há etapa de caixa depois.
+      rotaBloco = [postoId, POSTO_SHRINK[p.linha]];
     }
     const nBat = (ehGranel(postoId) && !ehMixManual)
       ? Math.max(1, Math.round(p.unidades / tamLote))
@@ -2841,6 +2896,7 @@ function pintaApontamento(){
             const idx = l.rotaPostos.indexOf(q.id);
             return idx >= 0 && idx <= l.etapaLiberada;
           })
+          .sort((a,b) => (a.ordemProg || 0) - (b.ordemProg || 0))   // na ordem em que foi colada
           .map(l => ({l, r: realizado(l, q.id)}))
           .filter(x => !x.r || !x.r.finalizado);
 
@@ -2926,7 +2982,7 @@ function pintaApontamento(){
             const vel  = velDoQuadro(q, l);
             const tot  = Math.ceil(l.prevista / f);
             const feito = r ? Math.floor(r.produzida / f) : 0;
-            const devia = (r && vel) ? Math.floor(r.liquido * vel / f) : null;
+            const devia = (r && vel) ? Math.max(0, Math.floor(r.liquido * vel / f)) : null;
             const dv    = devia !== null ? feito - devia : null;
             const un    = f > 1 ? 'cx' : 'un';
             const ontem = l.dataProg !== DIA_HOJE;
@@ -2952,8 +3008,13 @@ function pintaApontamento(){
               <td class="num mono">${devia !== null ? nf(devia) : '—'}</td>
 
               <td class="num">
-                ${r ? `<input class="in-qtd" type="number" min="0" data-qtd="${l.id}"
-                              value="${feito}" step="1">`
+                ${r ? `<div style="display:flex;gap:4px;align-items:center;justify-content:flex-end">
+                         <input class="in-qtd" type="number" min="0" data-lanc="${l.id}"
+                                placeholder="qtd" step="1" style="width:66px">
+                         <button class="bt iniciar" data-lancar="${l.id}"
+                                 style="font-size:11px;padding:5px 9px">Lançar</button>
+                       </div>
+                       <div class="rot" style="margin-top:3px">total: <b class="mono">${nf(feito)}</b></div>`
                     : `<span class="rot">—</span>`}
               </td>
 
@@ -2976,7 +3037,24 @@ function pintaApontamento(){
                          <button class="bt" data-fim="${l.id}">Finalizar e ir para a próxima</button>
                          <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`}
               </td>
-            </tr>`;
+            </tr>
+            ${(() => {
+              // HISTÓRICO: cada lançamento que a Paula fez, com lote e horário
+              if(!r) return '';
+              const lanc = ativos().filter(e => e.lote === l.id && e.tipo === 'contagem' &&
+                                                (!l.rotaPostos || !e.posto || e.posto === q.id));
+              if(!lanc.length) return '';
+              return `<tr class="lanc-hist"><td colspan="9" style="padding:0 12px 9px 12px">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+                  <span class="rot">lançamentos:</span>
+                  ${lanc.map(e => `<span class="chip-lanc">
+                      <b class="mono">${nf(Math.round(e.qtdEmb || 0))}</b>
+                      ${e.loteFab ? `<span class="mono" style="opacity:.75">${e.loteFab}</span>` : ''}
+                      <span class="rot" style="font-size:10px">${hora(e.ts)}</span>
+                      <button class="x-lanc" data-desfaz="${e.id}" title="desfazer">×</button>
+                    </span>`).join('')}
+                </div></td></tr>`;
+            })()}`;
           }).join('')}
           </tbody></table>`
           : `<div class="ap-vazio">Nenhuma ordem aberta neste posto. A Priscila sobe a programação.</div>`}
@@ -3090,9 +3168,16 @@ function pintaApontamento(){
   }
 
   // lote de fabricação: salva enquanto digita, sem perder o foco
-  document.querySelectorAll('#apont [data-lote]').forEach(i => i.oninput = () => {
-    const l = LOTES.find(x => x.id === i.dataset.lote);
-    if(l) l.loteFab = i.value;
+  document.querySelectorAll('#apont [data-lote]').forEach(i => {
+    i.oninput = () => {
+      const l = LOTES.find(x => x.id === i.dataset.lote);
+      if(l) l.loteFab = i.value;
+    };
+    // salva ao sair do campo (não a cada tecla, para não estourar a nuvem)
+    i.onblur = () => {
+      const l = LOTES.find(x => x.id === i.dataset.lote);
+      if(l) nuvemSalvar('lotes', l.id, l);
+    };
   });
 
   // setup: tipo e observação
@@ -3109,10 +3194,49 @@ function pintaApontamento(){
   });
 
   // quantidade: só grava ao sair do campo ou no Enter — senão apaga o que ela digita
-  document.querySelectorAll('#apont [data-qtd]').forEach(i => {
-    i.onblur    = () => apontarQuantidade(i.dataset.qtd, +i.value || 0) || pintaTudo();
-    i.onkeydown = e => { if(e.key === 'Enter') i.blur(); };
-    i.onfocus   = () => { i.dataset.edit = '1'; };
+  /* LANÇAMENTO: soma a quantidade daquele lote e limpa o campo,
+     pronto para o próximo lote. Enter faz o mesmo que o botão. */
+  function lancar(loteId){
+    const campo = document.querySelector(`#apont [data-lanc="${loteId}"]`);
+    if(!campo) return;
+    const qtd = +campo.value || 0;
+    if(qtd <= 0){ flash('Informe a quantidade'); campo.focus(); return; }
+    const l = LOTES.find(x => x.id === loteId);
+    if(!l) return;
+    const campoLote = document.querySelector(`#apont [data-lote="${loteId}"]`);
+    const loteFab = campoLote ? (campoLote.value || '').trim() : (l.loteFab || '');
+    if(loteFab && l.loteFab !== loteFab){ l.loteFab = loteFab; nuvemSalvar('lotes', l.id, l); }
+
+    const posto = l.rotaPostos ? l.rotaPostos[l.etapaLiberada] : l.posto;
+    registrar({tipo:'contagem', linha:l.linha, lote:l.id, qtdEmb:qtd, loteFab, posto});
+    flash(`${nf(qtd)} lançado${loteFab ? ' · lote ' + loteFab : ''}`);
+    campo.value = '';
+    // tira o foco ANTES de redesenhar: pintaApontamento não repinta enquanto
+    // um campo do apontamento está em foco (trava que protege o que ela digita).
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    pintaTudo();
+    // devolve o foco para o próximo lançamento
+    const denovo = document.querySelector(`#apont [data-lanc="${loteId}"]`);
+    if(denovo) denovo.focus();
+  }
+
+  document.querySelectorAll('#apont [data-lancar]').forEach(b =>
+    b.onclick = () => lancar(b.dataset.lancar));
+
+  document.querySelectorAll('#apont [data-lanc]').forEach(i => {
+    i.onkeydown = e => { if(e.key === 'Enter'){ e.preventDefault(); lancar(i.dataset.lanc); } };
+  });
+
+  /* desfazer um lançamento errado */
+  document.querySelectorAll('#apont [data-desfaz]').forEach(b => b.onclick = () => {
+    const id = +b.dataset.desfaz;
+    const ev = EVENTOS.find(e => e.id === id);
+    if(!ev) return;
+    if(!confirm(`Desfazer o lançamento de ${nf(Math.round(ev.qtdEmb||0))}${ev.loteFab ? ' do lote ' + ev.loteFab : ''}?`)) return;
+    ev.anulado = true;   // sai da conta (ativos() já filtra)
+    nuvemSalvar('eventos', ev.id, ev);
+    flash('Lançamento desfeito');
+    pintaTudo();
   });
 }
 
@@ -3523,6 +3647,20 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
