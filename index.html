@@ -881,6 +881,9 @@
 
 
 
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1046,7 +1049,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '20/07 18:18';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '20/07 19:03';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1294,8 +1297,11 @@ async function ligarNuvem(){
         if(ch.type === 'removed') return;
         const e = ch.doc.data();
         const i = EVENTOS.findIndex(x => x.id === e.id);
+        // eventos são append-only: só ADICIONA o que não tem.
+        // Nunca sobrescreve o que já está aqui — era isso que zerava
+        // um lançamento recém-feito quando a nuvem respondia.
         if(i < 0){ EVENTOS.push(e); mudou = true; }
-        else if(JSON.stringify(EVENTOS[i]) !== JSON.stringify(e)){ EVENTOS[i] = e; mudou = true; }
+        else if(e.anulado && !EVENTOS[i].anulado){ EVENTOS[i].anulado = true; mudou = true; }
       });
       if(mudou){ seqEvento = EVENTOS.reduce((m,e) => Math.max(m, e.id || 0), 0); pintaTudo(); }
     }, e => console.warn('snapshot eventos:', e.message));
@@ -1318,8 +1324,9 @@ function registrar(ev){
   ev.ts = ev.ts ?? AGORA.getTime();
   if(ev.tipo === 'contagem' || ev.tipo === 'refugo'){
     const lote = LOTES.find(l => l.id === ev.lote);
-    const emb  = EMBALAGENS.find(e => e.id === lote.embalagem);
-    ev.qtdUn = (ev.qtdEmb || 0) * emb.fator;
+    const emb  = lote ? EMBALAGENS.find(e => e.id === lote.embalagem) : null;
+    const fator = (emb && emb.fator) || 1;   // sem embalagem carregada, conta como unidade
+    ev.qtdUn = (ev.qtdEmb || 0) * fator;
   }
   EVENTOS.push(ev);
   nuvemSalvar('eventos', ev.id, ev);
@@ -2069,7 +2076,7 @@ const QUADROS = [
   {id:'GEL-CX',    linha:'GEL',   nome:'Caixa',                 curto:'Caixa',  meta:null},   // encaixotamento
   {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:68.0},
   {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:65.0},
-  {id:'PAST-BLC',  linha:'PAST',  nome:'Corte de bloco',        curto:'Bloco',  meta:null},   // bloco sanitário · medir amanhã
+  {id:'PAST-BLC',  linha:'PAST',  nome:'Corte de bloco',        curto:'Bloco',  meta:null, soLote:true},   // registra só início e fim do lote
   {id:'PAST-BLI',  linha:'PAST',  nome:'Blister',               curto:'Blister',meta:18.0},   // bloco sanitário · tempo de máquina
   {id:'PAST-SHR',  linha:'PAST',  nome:'Shrink',                curto:'Shrink', meta:null},   // etapa de shrink · medir
   {id:'PAST-CX',   linha:'PAST',  nome:'Caixa',                 curto:'Caixa',  meta:null},   // encaixotamento
@@ -2982,7 +2989,7 @@ function pintaApontamento(){
             const vel  = velDoQuadro(q, l);
             const tot  = Math.ceil(l.prevista / f);
             const feito = r ? Math.floor(r.produzida / f) : 0;
-            const devia = (r && vel) ? Math.max(0, Math.floor(r.liquido * vel / f)) : null;
+            const devia = (r && vel && !q.soLote) ? Math.max(0, Math.floor(r.liquido * vel / f)) : null;
             const dv    = devia !== null ? feito - devia : null;
             const un    = f > 1 ? 'cx' : 'un';
             const ontem = l.dataProg !== DIA_HOJE;
@@ -3008,14 +3015,16 @@ function pintaApontamento(){
               <td class="num mono">${devia !== null ? nf(devia) : '—'}</td>
 
               <td class="num">
-                ${r ? `<div style="display:flex;gap:4px;align-items:center;justify-content:flex-end">
-                         <input class="in-qtd" type="number" min="0" data-lanc="${l.id}"
+                ${!r ? `<span class="rot">—</span>`
+                   : q.soLote
+                     ? `<span class="rot">só início e fim</span>`
+                     : `<div style="display:flex;gap:4px;align-items:center;justify-content:flex-end">
+                         <input class="in-qtd" type="number" min="0" data-lanc="${l.id}" data-posto-lanc="${q.id}"
                                 placeholder="qtd" step="1" style="width:66px">
-                         <button class="bt iniciar" data-lancar="${l.id}"
+                         <button class="bt iniciar" data-lancar="${l.id}" data-posto-lanc="${q.id}"
                                  style="font-size:11px;padding:5px 9px">Lançar</button>
                        </div>
-                       <div class="rot" style="margin-top:3px">total: <b class="mono">${nf(feito)}</b></div>`
-                    : `<span class="rot">—</span>`}
+                       <div class="rot" style="margin-top:3px">total: <b class="mono">${nf(feito)}</b></div>`}
               </td>
 
               <td class="num">${dv !== null
@@ -3196,7 +3205,7 @@ function pintaApontamento(){
   // quantidade: só grava ao sair do campo ou no Enter — senão apaga o que ela digita
   /* LANÇAMENTO: soma a quantidade daquele lote e limpa o campo,
      pronto para o próximo lote. Enter faz o mesmo que o botão. */
-  function lancar(loteId){
+  function lancar(loteId, postoCtx){
     const campo = document.querySelector(`#apont [data-lanc="${loteId}"]`);
     if(!campo) return;
     const qtd = +campo.value || 0;
@@ -3207,7 +3216,9 @@ function pintaApontamento(){
     const loteFab = campoLote ? (campoLote.value || '').trim() : (l.loteFab || '');
     if(loteFab && l.loteFab !== loteFab){ l.loteFab = loteFab; nuvemSalvar('lotes', l.id, l); }
 
-    const posto = l.rotaPostos ? l.rotaPostos[l.etapaLiberada] : l.posto;
+    // o posto é o do CARD onde ela lançou — não a etapa liberada,
+    // que aponta para a PRÓXIMA etapa e jogava a contagem no lugar errado.
+    const posto = postoCtx || l.posto;
     registrar({tipo:'contagem', linha:l.linha, lote:l.id, qtdEmb:qtd, loteFab, posto});
     flash(`${nf(qtd)} lançado${loteFab ? ' · lote ' + loteFab : ''}`);
     campo.value = '';
@@ -3221,10 +3232,10 @@ function pintaApontamento(){
   }
 
   document.querySelectorAll('#apont [data-lancar]').forEach(b =>
-    b.onclick = () => lancar(b.dataset.lancar));
+    b.onclick = () => lancar(b.dataset.lancar, b.dataset.postoLanc));
 
   document.querySelectorAll('#apont [data-lanc]').forEach(i => {
-    i.onkeydown = e => { if(e.key === 'Enter'){ e.preventDefault(); lancar(i.dataset.lanc); } };
+    i.onkeydown = e => { if(e.key === 'Enter'){ e.preventDefault(); lancar(i.dataset.lanc, i.dataset.postoLanc); } };
   });
 
   /* desfazer um lançamento errado */
@@ -3647,6 +3658,9 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
 
 
 
