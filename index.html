@@ -372,8 +372,52 @@
     body.imprimindo-resultados { background:#fff }
   }
 </style>
+<!-- Firebase (SDK compat: funciona em HTML único, sem bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script>
+  const firebaseConfig = {
+    apiKey: "AIzaSyC8nAZhu6pGGYlRFKdocX2Q3ggZJMFXe5A",
+    authDomain: "braskim-apontamento.firebaseapp.com",
+    projectId: "braskim-apontamento",
+    storageBucket: "braskim-apontamento.firebasestorage.app",
+    messagingSenderId: "936466402382",
+    appId: "1:936466402382:web:aa85f8d56a7935771f471f"
+  };
+  // NUVEM = null quando o Firebase não carrega (o sistema segue em memória)
+  let NUVEM = null, AUTH = null;
+  // dona do sistema: sempre tem acesso e libera os demais
+  const EMAIL_DONA = 'caroline.azevedo@braskim.com.br';
+  try {
+    if(typeof firebase !== 'undefined'){
+      firebase.initializeApp(firebaseConfig);
+      NUVEM = firebase.firestore();
+      if(firebase.auth) AUTH = firebase.auth();
+    }
+  } catch(e){ console.warn('Firebase indisponível, rodando em memória:', e.message); }
+</script>
 </head>
 <body>
+
+<!-- PORTA DE ENTRADA: ninguém usa o sistema sem estar autorizado -->
+<div id="portao" style="position:fixed;inset:0;z-index:9999;background:#f6f7f9;display:flex;align-items:center;justify-content:center;font-family:'DM Sans',sans-serif">
+  <div style="background:#fff;border:1px solid #e3e6ea;border-radius:14px;padding:38px 40px;max-width:420px;width:calc(100% - 40px);box-shadow:0 6px 28px rgba(0,0,0,.07);text-align:center">
+    <div style="font-weight:800;font-size:19px;letter-spacing:-.3px;color:#111">BRASKIM</div>
+    <div style="font-size:12px;color:#8a9099;margin-top:3px;letter-spacing:.6px;text-transform:uppercase">Execução da Produção</div>
+
+    <div id="portao-corpo" style="margin-top:26px">
+      <div id="portao-msg" style="font-size:13.5px;color:#5b6169;line-height:1.55;margin-bottom:20px">
+        Entre com sua conta Google da Braskim para continuar.
+      </div>
+      <button id="btn-entrar" style="width:100%;padding:11px 16px;border-radius:8px;border:1px solid #dadce0;background:#fff;font-size:14px;font-weight:600;color:#3c4043;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px">
+        <svg width="17" height="17" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24s.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Entrar com o Google
+      </button>
+      <div id="portao-erro" style="font-size:12.5px;color:#c0392b;margin-top:16px;line-height:1.5"></div>
+    </div>
+  </div>
+</div>
 
 <header>
   <div class="marca"><b>BRASKIM</b><span>Execução da Produção</span></div>
@@ -395,6 +439,8 @@
       <div class="rot">Resta de turno</div>
     </div>
   </div>
+  <div id="usuario-logado" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--apagado);padding-right:14px"></div>
+  <div id="status-nuvem" style="font-size:12px;color:var(--apagado);font-family:'DM Mono',monospace;padding-right:14px">● Iniciando…</div>
 </header>
 
 <main>
@@ -581,6 +627,23 @@
       </tr></thead><tbody id="tb-turnos"></tbody></table>
     </div>
   
+    <div id="bloco-acessos" style="display:none;margin-bottom:22px">
+      <h2 class="titulo-secao" style="margin:0 0 10px">Quem pode usar o sistema</h2>
+      <p class="rot" style="margin:0 0 12px">Somente estes e-mails conseguem entrar. Marque como admin quem também puder liberar outras pessoas.</p>
+      <table class="tab" style="margin-bottom:12px">
+        <thead><tr><th>E-mail</th><th style="width:90px">Admin</th><th style="width:80px"></th></tr></thead>
+        <tbody id="tb-acessos"></tbody>
+      </table>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input id="novo-acesso" type="email" placeholder="nome@braskim.com.br"
+               style="flex:1;min-width:220px;border:1px solid var(--linha);border-radius:7px;padding:8px 11px;font-size:13px">
+        <label class="rot" style="display:flex;align-items:center;gap:5px;cursor:pointer">
+          <input type="checkbox" id="novo-admin"> admin
+        </label>
+        <button class="bt iniciar" id="btn-add-acesso">Liberar acesso</button>
+      </div>
+    </div>
+
     <div id="carimbo-versao" style="margin-bottom:18px;padding:9px 13px;background:#f1f5f9;border:1px solid var(--linha);border-radius:8px;font-size:12px;color:var(--apagado);font-family:'DM Mono',monospace"></div>
 
     <h2 class="titulo-secao" style="margin:30px 0 10px">Jornada padrão</h2>
@@ -704,6 +767,13 @@
 </div>
 
 <script>
+
+
+
+
+
+
+
 
 
 
@@ -956,7 +1026,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '20/07 14:30';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '20/07 16:48';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -969,6 +1039,254 @@ let LOTES  = [];
 let EVENTOS = [];       // {ts, linha, lote, tipo, qtdEmb, qtdUn, motivo}
 let seqEvento = 0;
 
+
+
+/* =================================================================
+   ACESSO — login Google + lista de autorizados
+   A dona (Caroline) sempre entra e é quem libera os demais.
+   ================================================================= */
+let USUARIO = null;                 // {email, nome, foto}
+let ACESSOS = {emails: [], admins: []};
+
+function ehDona(email){ return (email||'').toLowerCase() === EMAIL_DONA.toLowerCase(); }
+function ehAdmin(email){
+  const e = (email||'').toLowerCase();
+  return ehDona(e) || ACESSOS.admins.some(x => (x||'').toLowerCase() === e);
+}
+function temAcesso(email){
+  const e = (email||'').toLowerCase();
+  return ehDona(e) || ACESSOS.emails.some(x => (x||'').toLowerCase() === e);
+}
+
+function mostraPortao(msg, erro){
+  const p = document.getElementById('portao');
+  if(p) p.style.display = 'flex';
+  if(msg){ const m = document.getElementById('portao-msg'); if(m) m.textContent = msg; }
+  const e = document.getElementById('portao-erro');
+  if(e) e.textContent = erro || '';
+}
+function fechaPortao(){
+  const p = document.getElementById('portao');
+  if(p) p.style.display = 'none';
+}
+
+async function carregaAcessos(){
+  if(!NUVEM) return;
+  try {
+    const d = await NUVEM.collection('config').doc('acessos').get();
+    if(d.exists){
+      const a = d.data();
+      ACESSOS.emails = Array.isArray(a.emails) ? a.emails : [];
+      ACESSOS.admins = Array.isArray(a.admins) ? a.admins : [];
+    }
+  } catch(e){ console.warn('não deu para ler os acessos:', e.message); }
+}
+
+async function salvarAcessos(){
+  if(!NUVEM) return;
+  await nuvemSalvar('config', 'acessos', {
+    emails: ACESSOS.emails, admins: ACESSOS.admins, atualizadoEm: Date.now()
+  });
+}
+
+/* entra com o Google */
+async function entrarComGoogle(){
+  if(!AUTH){ mostraPortao(null, 'Autenticação indisponível. Verifique a conexão.'); return; }
+  try {
+    const prov = new firebase.auth.GoogleAuthProvider();
+    prov.setCustomParameters({prompt: 'select_account'});
+    await AUTH.signInWithPopup(prov);
+  } catch(e){
+    const m = e.code === 'auth/popup-closed-by-user' ? 'Login cancelado.'
+            : e.code === 'auth/popup-blocked' ? 'O navegador bloqueou a janela. Libere os pop-ups e tente de novo.'
+            : e.code === 'auth/operation-not-allowed' ? 'O login Google não está habilitado no Firebase.'
+            : 'Não foi possível entrar: ' + e.message;
+    mostraPortao(null, m);
+  }
+}
+
+function sair(){ if(AUTH) AUTH.signOut(); }
+
+/* vigia o estado do login */
+function ligarAcesso(){
+  if(!AUTH){
+    // sem Firebase: modo local, segue sem porta (não perde o trabalho)
+    fechaPortao();
+    ligarNuvem();
+    return;
+  }
+  const btn = document.getElementById('btn-entrar');
+  if(btn) btn.onclick = entrarComGoogle;
+
+  AUTH.onAuthStateChanged(async user => {
+    if(!user){ USUARIO = null; mostraPortao('Entre com sua conta Google da Braskim para continuar.'); return; }
+
+    USUARIO = {email: user.email, nome: user.displayName || user.email, foto: user.photoURL};
+    await carregaAcessos();
+
+    if(!temAcesso(USUARIO.email)){
+      mostraPortao(null,
+        `A conta ${USUARIO.email} não tem acesso a este sistema. ` +
+        `Peça liberação para a Caroline.`);
+      const c = document.getElementById('portao-corpo');
+      if(c && !document.getElementById('btn-trocar')){
+        const b = document.createElement('button');
+        b.id = 'btn-trocar'; b.textContent = 'Entrar com outra conta';
+        b.style.cssText = 'margin-top:14px;padding:9px 14px;border-radius:8px;border:1px solid #dadce0;background:#fff;font-size:13px;cursor:pointer;width:100%';
+        b.onclick = () => { sair(); const e=document.getElementById('portao-erro'); if(e) e.textContent=''; b.remove(); };
+        c.appendChild(b);
+      }
+      return;
+    }
+
+    // autorizado: garante que a dona esteja na lista e entra
+    if(ehDona(USUARIO.email) && !ACESSOS.emails.some(x => ehDona(x))){
+      ACESSOS.emails.push(EMAIL_DONA);
+      if(!ACESSOS.admins.some(x => ehDona(x))) ACESSOS.admins.push(EMAIL_DONA);
+      salvarAcessos();
+    }
+    fechaPortao();
+    pintaUsuario();
+    ligarNuvem();
+    pintaTudo();
+  });
+}
+
+function pintaUsuario(){
+  const el = document.getElementById('usuario-logado');
+  if(!el || !USUARIO) return;
+  el.innerHTML = `
+    <span title="${USUARIO.email}" style="display:flex;align-items:center;gap:7px">
+      ${USUARIO.foto ? `<img src="${USUARIO.foto}" style="width:22px;height:22px;border-radius:50%">` : ''}
+      <span style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${USUARIO.nome}</span>
+      ${ehAdmin(USUARIO.email) ? '<span class="tag" style="font-size:9px;padding:2px 5px">ADMIN</span>' : ''}
+    </span>
+    <button id="btn-sair" style="border:none;background:none;color:var(--apagado);cursor:pointer;font-size:11px;text-decoration:underline;padding:0 0 0 4px">sair</button>`;
+  const b = document.getElementById('btn-sair');
+  if(b) b.onclick = sair;
+}
+
+/* =================================================================
+   PERSISTÊNCIA NA NUVEM (Firestore)
+   Os dados param de sumir no refresh e ficam iguais para todo mundo:
+   a Paula aponta no tablet, a Priscila vê no computador dela.
+   Se a nuvem não estiver disponível, o sistema segue em memória.
+   ================================================================= */
+let NUVEM_PRONTA = false;
+let NUVEM_ESCREVENDO = 0;   // janela de escrita: evita o snapshot atropelar o que acabou de ser digitado
+
+function nuvemOk(){ return NUVEM && NUVEM_PRONTA; }
+
+function nuvemSalvar(colecao, id, dados){
+  if(!NUVEM) return Promise.resolve();
+  NUVEM_ESCREVENDO++;
+  return NUVEM.collection(colecao).doc(String(id)).set(JSON.parse(JSON.stringify(dados)))
+    .catch(e => console.warn('falha ao salvar', colecao, id, e.message))
+    .finally(() => { NUVEM_ESCREVENDO = Math.max(0, NUVEM_ESCREVENDO - 1); });
+}
+
+function nuvemApagar(colecao, id){
+  if(!NUVEM) return Promise.resolve();
+  return NUVEM.collection(colecao).doc(String(id)).delete()
+    .catch(e => console.warn('falha ao apagar', colecao, id, e.message));
+}
+
+/* configuração geral num documento só */
+function salvarConfig(){
+  if(!NUVEM) return;
+  nuvemSalvar('config', 'geral', {
+    jornada: JORNADA,
+    lotacao: LOTACAO,
+    linhaIniciada: LINHA_INICIADA,
+    progSubidas: [...PROG_SUBIDAS],
+    velEmbalagem: Object.fromEntries(
+      Object.entries(VEL_EMBALAGEM).map(([k,v]) => [k, {velUnMin:v.velUnMin, porPessoa:!!v.porPessoa, fonte:v.fonte}])),
+    atualizadoEm: Date.now()
+  });
+}
+
+function salvarTurnos(){
+  if(!NUVEM) return;
+  nuvemSalvar('config', 'turnos', {lista: TURNOS});
+}
+
+/* carrega tudo e passa a ouvir mudanças em tempo real */
+async function ligarNuvem(){
+  if(!NUVEM){ statusNuvem('memória', 'Sem nuvem — dados somem ao atualizar'); return; }
+  statusNuvem('ligando', 'Conectando…');
+  try {
+    // 1) carga inicial
+    const [cfg, trn, prod, emb, lot, evt] = await Promise.all([
+      NUVEM.collection('config').doc('geral').get(),
+      NUVEM.collection('config').doc('turnos').get(),
+      NUVEM.collection('produtos').get(),
+      NUVEM.collection('embalagens').get(),
+      NUVEM.collection('lotes').get(),
+      NUVEM.collection('eventos').orderBy('ts').get()
+    ]);
+
+    if(cfg.exists){
+      const c = cfg.data();
+      if(c.jornada)  Object.assign(JORNADA, c.jornada);
+      if(c.lotacao)  Object.entries(c.lotacao).forEach(([k,v]) => { LOTACAO[k] = v; });
+      if(c.linhaIniciada) Object.assign(LINHA_INICIADA, c.linhaIniciada);
+      if(c.progSubidas)   c.progSubidas.forEach(d => PROG_SUBIDAS.add(d));
+      if(c.velEmbalagem)  Object.entries(c.velEmbalagem).forEach(([k,v]) => { VEL_EMBALAGEM[k] = v; });
+    }
+    if(trn.exists && Array.isArray(trn.data().lista) && trn.data().lista.length){
+      TURNOS.length = 0; trn.data().lista.forEach(t => TURNOS.push(t));
+    }
+    prod.forEach(d => { if(!PRODUTOS.some(p => p.id === d.id)) PRODUTOS.push(d.data()); });
+    emb.forEach(d  => { if(!EMBALAGENS.some(e => e.id === d.id)) EMBALAGENS.push(d.data()); });
+    lot.forEach(d  => { if(!LOTES.some(l => l.id === d.id)) LOTES.push(d.data()); });
+    evt.forEach(d  => { const e = d.data(); if(!EVENTOS.some(x => x.id === e.id)) EVENTOS.push(e); });
+    // o contador de eventos continua de onde parou
+    seqEvento = EVENTOS.reduce((m,e) => Math.max(m, e.id || 0), 0);
+
+    NUVEM_PRONTA = true;
+    statusNuvem('ok', 'Salvo na nuvem');
+    pintaTudo();
+
+    // 2) tempo real: novos lotes e eventos de outros aparelhos
+    NUVEM.collection('lotes').onSnapshot(snap => {
+      if(NUVEM_ESCREVENDO) return;
+      let mudou = false;
+      snap.docChanges().forEach(ch => {
+        const l = ch.doc.data();
+        const i = LOTES.findIndex(x => x.id === l.id);
+        if(ch.type === 'removed'){ if(i >= 0){ LOTES.splice(i,1); mudou = true; } }
+        else if(i < 0){ LOTES.push(l); mudou = true; }
+        else if(JSON.stringify(LOTES[i]) !== JSON.stringify(l)){ LOTES[i] = l; mudou = true; }
+      });
+      if(mudou) pintaTudo();
+    }, e => console.warn('snapshot lotes:', e.message));
+
+    NUVEM.collection('eventos').onSnapshot(snap => {
+      if(NUVEM_ESCREVENDO) return;
+      let mudou = false;
+      snap.docChanges().forEach(ch => {
+        if(ch.type === 'removed') return;
+        const e = ch.doc.data();
+        const i = EVENTOS.findIndex(x => x.id === e.id);
+        if(i < 0){ EVENTOS.push(e); mudou = true; }
+        else if(JSON.stringify(EVENTOS[i]) !== JSON.stringify(e)){ EVENTOS[i] = e; mudou = true; }
+      });
+      if(mudou){ seqEvento = EVENTOS.reduce((m,e) => Math.max(m, e.id || 0), 0); pintaTudo(); }
+    }, e => console.warn('snapshot eventos:', e.message));
+
+  } catch(e){
+    console.warn('nuvem indisponível:', e.message);
+    statusNuvem('erro', 'Sem nuvem — ' + e.message);
+  }
+}
+
+function statusNuvem(estado, texto){
+  const el = document.getElementById('status-nuvem');
+  if(!el) return;
+  const cor = estado === 'ok' ? 'var(--ok)' : estado === 'erro' ? 'var(--atraso)' : 'var(--apagado)';
+  el.innerHTML = `<span style="color:${cor}">●</span> ${texto}`;
+}
+
 function registrar(ev){
   ev.id = ++seqEvento;
   ev.ts = ev.ts ?? AGORA.getTime();
@@ -978,6 +1296,7 @@ function registrar(ev){
     ev.qtdUn = (ev.qtdEmb || 0) * emb.fator;
   }
   EVENTOS.push(ev);
+  nuvemSalvar('eventos', ev.id, ev);
 }
 
 function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot, rotaPostos}){
@@ -1006,6 +1325,7 @@ function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoI
     padraoMin: p.arranque + qtd / p.vel
   };
   LOTES.push(lote);
+  nuvemSalvar('lotes', lote.id, lote);
   return lote;
 }
 
@@ -1473,11 +1793,78 @@ document.getElementById('btn-jornada') && (document.getElementById('btn-jornada'
   const min = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
   const almoco = (min(JORNADA.almocoFim)-min(JORNADA.almocoIni))/60;
   JORNADA.horasTrabalho = (min(JORNADA.fim)-min(JORNADA.inicioPadrao))/60 - almoco;
+  salvarConfig();
   flash(`Jornada salva · ${JORNADA.horasTrabalho.toFixed(1)}h de trabalho`);
   pintaTudo();
 });
 
 // ---- LOTAÇÃO por posto ----
+
+/* tabela de acessos — só admin vê e mexe */
+function pintaAcessos(){
+  const bloco = document.getElementById('bloco-acessos');
+  const tb = document.getElementById('tb-acessos');
+  if(!bloco || !tb) return;
+
+  // sem login (modo local) ou não-admin: esconde
+  if(!USUARIO || !ehAdmin(USUARIO.email)){ bloco.style.display = 'none'; return; }
+  bloco.style.display = 'block';
+
+  const lista = ACESSOS.emails.length ? ACESSOS.emails : [EMAIL_DONA];
+  tb.innerHTML = lista.map(em => {
+    const dona = ehDona(em);
+    const adm  = dona || ACESSOS.admins.some(x => (x||'').toLowerCase() === (em||'').toLowerCase());
+    return `<tr>
+      <td>${em}${dona ? ' <span class="tag" style="font-size:9px;padding:2px 5px">DONA</span>' : ''}</td>
+      <td style="text-align:center">
+        <input type="checkbox" data-adm="${em}" ${adm ? 'checked' : ''} ${dona ? 'disabled' : ''}>
+      </td>
+      <td style="text-align:right">
+        ${dona ? '<span class="rot">—</span>'
+               : `<button class="bt" data-rm-acesso="${em}" style="font-size:11px;padding:4px 9px;border-color:var(--atraso);color:var(--atraso)">remover</button>`}
+      </td>
+    </tr>`;
+  }).join('');
+
+  tb.querySelectorAll('[data-adm]').forEach(cb => cb.onchange = () => {
+    const em = cb.dataset.adm;
+    const i = ACESSOS.admins.findIndex(x => (x||'').toLowerCase() === em.toLowerCase());
+    if(cb.checked && i < 0) ACESSOS.admins.push(em);
+    if(!cb.checked && i >= 0) ACESSOS.admins.splice(i,1);
+    salvarAcessos();
+    flash(cb.checked ? `${em} agora é admin` : `${em} deixou de ser admin`);
+    pintaAcessos();
+  });
+
+  tb.querySelectorAll('[data-rm-acesso]').forEach(b => b.onclick = () => {
+    const em = b.dataset.rmAcesso;
+    if(!confirm(`Remover o acesso de ${em}?\n\nEssa pessoa não vai mais conseguir entrar no sistema.`)) return;
+    ACESSOS.emails = ACESSOS.emails.filter(x => (x||'').toLowerCase() !== em.toLowerCase());
+    ACESSOS.admins = ACESSOS.admins.filter(x => (x||'').toLowerCase() !== em.toLowerCase());
+    salvarAcessos();
+    flash(`Acesso de ${em} removido`);
+    pintaAcessos();
+  });
+}
+
+function ligarBotaoAcesso(){
+  const b = document.getElementById('btn-add-acesso');
+  if(!b) return;
+  b.onclick = () => {
+    const inp = document.getElementById('novo-acesso');
+    const adm = document.getElementById('novo-admin');
+    const em = (inp.value || '').trim().toLowerCase();
+    if(!em || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(em)){ flash('E-mail inválido'); return; }
+    if(ACESSOS.emails.some(x => (x||'').toLowerCase() === em)){ flash('Esse e-mail já tem acesso'); return; }
+    ACESSOS.emails.push(em);
+    if(adm && adm.checked) ACESSOS.admins.push(em);
+    salvarAcessos();
+    inp.value = ''; if(adm) adm.checked = false;
+    flash(`${em} liberado`);
+    pintaAcessos();
+  };
+}
+
 function pintaCarimbo(){
   const el = document.getElementById('carimbo-versao');
   if(el) el.textContent = 'Versão do sistema: ' + VERSAO_SISTEMA +
@@ -1528,6 +1915,7 @@ function pintaLotacao(){
     if(!LOTACAO[pid]) LOTACAO[pid] = {pessoas:n, fixo:true};
     else LOTACAO[pid].pessoas = n;
     const cfg = LOTACAO[pid];
+    salvarConfig();
     flash(cfg.cxHoraPorPessoa
       ? `${q_nome(pid)}: ${n} pessoa(s) · ${n*cfg.cxHoraPorPessoa} cx/hora`
       : `${q_nome(pid)}: ${n} pessoa(s)`);
@@ -1554,9 +1942,11 @@ document.getElementById('btn-turno').onclick = () => {
     if(t) Object.assign(t, dados);
     TURNO_EDITANDO = null;
     document.getElementById('btn-turno').textContent = 'Registrar turno';
+    salvarTurnos();
     flash('Turno atualizado');
   } else {
     TURNOS.push({id:'T'+Date.now(), ...dados});
+    salvarTurnos();
     flash('Turno registrado');
   }
   pintaTurnos();
@@ -1602,6 +1992,7 @@ function pintaTurnos(){
     if(!t) return;
     if(!confirm(`Remover o turno "${t.nome}" de ${nomeLinha(t.linha)}?`)) return;
     TURNOS = TURNOS.filter(x => x.id !== b.dataset.delturno);
+    salvarTurnos();
     flash('Turno removido');
     pintaTudo();
   });
@@ -2112,14 +2503,16 @@ document.getElementById('btn-subir').onclick = () => {
     // (a pedra FP01 / o mix), não a batelada. Por isso não viram lote no apontamento.
     // a importação alimenta o CADASTRO — não cria lote órfão
     const pid = 'IMP' + Date.now().toString().slice(-5) + i;
-    PRODUTOS.push({id:pid, nome:p.desc, linha:p.linha});
+    const _prod = {id:pid, nome:p.desc, linha:p.linha};
+    PRODUTOS.push(_prod); nuvemSalvar('produtos', pid, _prod);
 
     const eid = 'EMB' + pid;
-    EMBALAGENS.push({
+    const _emb = {
       id:eid,
       nome: p.rota.codEmb ? `${p.rota.codEmb} · ${p.rota.unPorEmb} un` : 'Unidade',
       fator: p.rota.unPorEmb || 1
-    });
+    };
+    EMBALAGENS.push(_emb); nuvemSalvar('embalagens', eid, _emb);
 
     // padrão derivado do gargalo da rota — nunca digitado.
     // meta de setup = o MELHOR preparo já registrado (17 min). É o alvo do SMED.
@@ -2201,6 +2594,7 @@ document.getElementById('btn-subir').onclick = () => {
   });
   flash(`${n} ordens de ${dataProducao} subiram para o chão de fábrica`);
   PROG_SUBIDAS.add(dataProducao);
+  salvarConfig();
   // botão continua ativo — a Priscila pode subir a programação de outro dia
   document.getElementById('cola').value = '';
   PROG = [];
@@ -2599,6 +2993,7 @@ function pintaApontamento(){
     const [h,m] = valor.split(':').map(Number);
     if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
     LINHA_INICIADA[linhaId] = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    salvarConfig();
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash(`${nomeLinha(linhaId)} iniciada às ${valor}`);
     pintaTudo();
@@ -2622,9 +3017,10 @@ function pintaApontamento(){
     EVENTOS.forEach(e => {
       if(e.tipo === 'lote_iniciado'){
         const l = LOTES.find(x => x.id === e.lote);
-        if(l && l.linha === linhaId){ e.ts = novoTs; movidos++; }
+        if(l && l.linha === linhaId){ e.ts = novoTs; movidos++; nuvemSalvar('eventos', e.id, e); }
       }
     });
+    salvarConfig();
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash(movidos ? `${nomeLinha(linhaId)} recolocada às ${nova} · deveria-ter recalculado`
                   : `Hora ajustada para ${nova}`);
@@ -3082,6 +3478,7 @@ function pintaTudo(){
   pintaApontamento();
   pintaCadastros();
   pintaLotacao();
+  pintaAcessos();
   pintaCarimbo();
   carregaJornadaForm();
   pintaGel();
@@ -3113,6 +3510,10 @@ document.getElementById('mp-posto').innerHTML =
   QUADROS.map(q => `<option value="${q.id}">${nomeLinha(q.linha)} · ${q.nome}</option>`).join('');
 pintaTudo();
 setInterval(tique, 1000);
+ligarBotaoAcesso();
+
+/* porta de entrada: login e, se autorizado, liga a nuvem */
+ligarAcesso();
 
 
 
@@ -3122,6 +3523,13 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
 
 
 
