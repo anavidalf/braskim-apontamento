@@ -884,6 +884,7 @@
 
 
 
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1049,7 +1050,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '20/07 19:03';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '20/07 20:52';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1283,9 +1284,17 @@ async function ligarNuvem(){
       snap.docChanges().forEach(ch => {
         const l = ch.doc.data();
         const i = LOTES.findIndex(x => x.id === l.id);
-        if(ch.type === 'removed'){ if(i >= 0){ LOTES.splice(i,1); mudou = true; } }
-        else if(i < 0){ LOTES.push(l); mudou = true; }
-        else if(JSON.stringify(LOTES[i]) !== JSON.stringify(l)){ LOTES[i] = l; mudou = true; }
+        if(ch.type === 'removed'){ if(i >= 0){ LOTES.splice(i,1); mudou = true; } return; }
+        if(i < 0){ LOTES.push(l); mudou = true; return; }
+        if(JSON.stringify(LOTES[i]) === JSON.stringify(l)) return;
+        // Mescla sem RETROCEDER: a etapa da cascata só avança, e o lote de
+        // fabricação já digitado aqui não é apagado por uma versão antiga.
+        const local = LOTES[i];
+        const juntos = Object.assign({}, local, l);
+        juntos.etapaLiberada = Math.max(local.etapaLiberada || 0, l.etapaLiberada || 0);
+        if(local.loteFab && !l.loteFab) juntos.loteFab = local.loteFab;
+        if(local.status === 'cancelado') juntos.status = 'cancelado';
+        LOTES[i] = juntos; mudou = true;
       });
       if(mudou) pintaTudo();
     }, e => console.warn('snapshot lotes:', e.message));
@@ -3127,6 +3136,7 @@ function pintaApontamento(){
       const idx = l.rotaPostos.indexOf(posto);
       if(idx >= 0 && idx === l.etapaLiberada && idx < l.rotaPostos.length - 1){
         l.etapaLiberada = idx + 1;
+        nuvemSalvar('lotes', l.id, l);   // sem isso a nuvem devolve a versão antiga e desfaz o avanço
         const prox = quadro(l.rotaPostos[idx + 1]);
         flash(`${l.loteFab || 'Lote'} liberado para ${prox ? prox.nome : 'próxima etapa'}`);
       } else {
@@ -3165,6 +3175,7 @@ function pintaApontamento(){
     registrar({tipo:'lote_cancelado', linha:l.linha, lote:l.id, origem:'supervisao', motivoCancel:motivo.trim()});
     l.status = 'cancelado';
     l.motivoCancel = motivo.trim();
+    nuvemSalvar('lotes', l.id, l);
     flash(`Ordem ${l.numero} cancelada`);
     pintaTudo();
   });
@@ -3658,6 +3669,7 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
 
 
 
