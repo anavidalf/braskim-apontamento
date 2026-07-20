@@ -780,6 +780,9 @@
 
 
 
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1662,16 +1665,26 @@ function postoDaOrdem(rota, linha, um){
     return ehCaixa ? 'GEL-CR01' : 'GEL-ENV';
   }
   if(linha === 'PAST'){
-    // BLOCO: sempre entra pelo CORTE, que define os lotes de 1526.
-    // Blister, shrink e caixa são etapas seguintes do mesmo lote.
-    if(rota.ehBloco) return 'PAST-BLC';
+    // BLOCO — cada ordem da programação é uma ETAPA:
+    //   BL01 em UNIDADE      -> corte (e cascateia pro blister)
+    //   BL01 + SH + CX       -> shrink
+    //   BL01 + CX (sem SH)   -> caixa
+    if(rota.ehBloco){
+      if(!ehCaixa)          return 'PAST-BLC';   // granel: corte -> blister
+      if(rota.temShrink)    return 'PAST-SHR';   // etapa de shrink
+      return 'PAST-CX';                          // etapa de caixa
+    }
     if(rota.codPrim || ehCaixa)       return 'PAST-FP';
     return 'PAST-COR';
   }
   if(linha === 'PEDRA'){
     // Mix/cartela usa pedras já prontas -> entra direto na cartela
     if(rota.codEmb && VEL_EMBALAGEM[rota.codEmb]) return 'PEDRA-CX';
-    // todo o resto entra pela Prensa/Embaladora (a dupla)
+    // ordem com CR01 = etapa da ENCARTUCHADEIRA (a prensa veio em outra ordem)
+    if(rota.codPrim && rota.codPrim.startsWith('CR')) return 'PEDRA-CR';
+    // ordem com cartela (CT) = etapa da cartela
+    if(rota.codEmb && /^CT/.test(rota.codEmb)) return 'PEDRA-CX';
+    // granel (FP01 / batelada) entra pela Prensa/Embaladora (a dupla)
     return 'PEDRA-PR';
   }
   return 'LIQ';
@@ -2097,7 +2110,7 @@ document.getElementById('btn-subir').onclick = () => {
     const S = POSTOS[p.linha].setup;
     PADROES[pid] = {vel:p.gargalo.vel, arranque:0, setupMeta:S.melhor};
 
-    const postoId  = postoDaOrdem(p.rota, p.linha);
+    const postoId  = postoDaOrdem(p.rota, p.linha, p.um);   // o U.M. define a etapa (UNID = produção, CX = embalagem)
     const dataProgSel = (() => {
       const pd = document.getElementById('prog-data');
       if(pd && pd.value){ const [aa,mm,dd] = pd.value.split('-'); return `${dd}/${mm}`; }
@@ -2114,7 +2127,10 @@ document.getElementById('btn-subir').onclick = () => {
     // - produto com shrink: entrada -> shrink -> caixa (mesmo posto de entrada fecha a caixa)
     let rotaBloco = null;
     if(p.rota.ehBloco){
-      rotaBloco = ['PAST-BLC', 'PAST-BLI', ...(p.rota.temShrink ? ['PAST-SHR'] : []), 'PAST-FP'];
+      // cascata a partir da etapa que ESTA ordem representa
+      if(postoId === 'PAST-BLC')      rotaBloco = ['PAST-BLC','PAST-BLI'];        // corte -> blister
+      else if(postoId === 'PAST-SHR') rotaBloco = ['PAST-SHR','PAST-CX'];         // shrink -> caixa
+      else                             rotaBloco = null;                           // caixa: etapa única
     } else if(p.linha === 'PEDRA'){
       // PEDRA — cascata conforme o caminho de embalagem.
       // Regra: cartela (CT) e encartuchadeira (CR) nunca coexistem.
@@ -2125,14 +2141,13 @@ document.getElementById('btn-subir').onclick = () => {
       if(ehMixPronto){
         rotaBloco = ['PEDRA-CX', 'PEDRA-CXX'];               // cartela -> caixa (outra equipe)
       } else if(temCR){
-        // Prensa/Emb -> Encartuchadeira -> (Shrink) -> Caixa
-        rotaBloco = ['PEDRA-PR', 'PEDRA-CR',
-          ...(r.temShrink ? ['PEDRA-SHR'] : []), 'PEDRA-CXX'];
+        // ordem de encartuchadeira: Encart -> (Shrink) -> Caixa
+        rotaBloco = ['PEDRA-CR', ...(r.temShrink ? ['PEDRA-SHR'] : []), 'PEDRA-CXX'];
       } else if(temCT){
-        // Prensa/Emb -> Cartela -> Caixa
-        rotaBloco = ['PEDRA-PR', 'PEDRA-CX', 'PEDRA-CXX'];
+        // ordem de cartela: Cartela -> Caixa
+        rotaBloco = ['PEDRA-CX', 'PEDRA-CXX'];
       } else if(ehCaixaOrdem(p)){
-        // Naftalina/pedra direto pra caixa: Prensa/Emb -> Caixa
+        // Naftalina direto pra caixa: Prensa/Emb -> Caixa
         rotaBloco = ['PEDRA-PR', 'PEDRA-CXX'];
       }
       // pedra FP01 pura (granel) fica só na Prensa/Emb, sem cascata
@@ -3095,6 +3110,9 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
 
 
 
