@@ -581,6 +581,8 @@
       </tr></thead><tbody id="tb-turnos"></tbody></table>
     </div>
   
+    <div id="carimbo-versao" style="margin-bottom:18px;padding:9px 13px;background:#f1f5f9;border:1px solid var(--linha);border-radius:8px;font-size:12px;color:var(--apagado);font-family:'DM Mono',monospace"></div>
+
     <h2 class="titulo-secao" style="margin:30px 0 10px">Jornada padrão</h2>
     <p class="sub" style="margin-bottom:14px">10 horas no local: 9 de trabalho + 1 de almoço. É a base do cálculo de OEE e de carga. O envase tem início próprio (revezamento de café).</p>
     <div class="form" style="margin-bottom:20px">
@@ -702,6 +704,7 @@
 </div>
 
 <script>
+
 
 
 
@@ -951,6 +954,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
+const VERSAO_SISTEMA = '20/07 14:30';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1472,6 +1476,11 @@ document.getElementById('btn-jornada') && (document.getElementById('btn-jornada'
 });
 
 // ---- LOTAÇÃO por posto ----
+function pintaCarimbo(){
+  const el = document.getElementById('carimbo-versao');
+  if(el) el.textContent = 'Versão do sistema: ' + VERSAO_SISTEMA +
+    '  ·  se não bater com a que você publicou, force Ctrl+Shift+R';
+}
 function pintaLotacao(){
   const tb = document.getElementById('tb-lotacao');
   if(!tb) return;
@@ -3079,6 +3088,7 @@ function pintaTudo(){
   pintaApontamento();
   pintaCadastros();
   pintaLotacao();
+  pintaCarimbo();
   carregaJornadaForm();
   pintaGel();
   pintaResultados();
@@ -3118,6 +3128,7 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
 
 
 
