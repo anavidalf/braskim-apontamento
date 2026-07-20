@@ -789,6 +789,8 @@
 
 
 
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -2418,8 +2420,9 @@ function pintaApontamento(){
     if(!qs.length) return '';
 
     const iniciada = LINHA_INICIADA[li.id];
-    // ENVASE: início manual próprio (começa antes da Paula chegar)
-    const ehEnvase = li.id === 'GEL';
+    // TODA linha informa a hora real de início — cada uma pode começar
+    // em horário diferente (reunião, treinamento, revezamento de café).
+    const horaPadrao = li.id === 'GEL' ? '06:00' : JORNADA.inicioPadrao;   // o envase começa antes
     return `
     <section class="grupo ${iniciada ? '' : 'linha-espera'}">
       <div class="grupo-cab">
@@ -2427,13 +2430,11 @@ function pintaApontamento(){
         <div class="risco"></div>
         ${iniciada
           ? `<span class="tag ok" style="margin-left:auto">iniciada ${hora(iniciada)}</span>
-             ${ehEnvase ? `<button class="bt" data-horaenvase="${li.id}" style="font-size:11px;padding:5px 9px">ajustar hora</button>` : ''}`
-          : ehEnvase
-            ? `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-                 <input type="time" id="ini-env" value="06:00" style="border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace;font-size:13px">
-                 <button class="bt iniciar" data-iniciarenvase="${li.id}">▶ Iniciar envase</button>
-               </span>`
-            : `<button class="bt iniciar" data-iniciarlinha="${li.id}" style="margin-left:auto">▶ Iniciar linha</button>`}
+             <button class="bt" data-ajustarhora="${li.id}" style="font-size:11px;padding:5px 9px">ajustar hora</button>`
+          : `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+               <input type="time" id="ini-hora-${li.id}" value="${horaPadrao}" style="border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace;font-size:13px">
+               <button class="bt iniciar" data-iniciarhora="${li.id}">▶ Iniciar linha</button>
+             </span>`}
       </div>
       ${!iniciada ? `<div class="ap-aviso-inicio">Programação do dia abaixo. A contagem só vale após <b>Iniciar linha</b>.</div>` : ''}
       ${qs.map(q => {
@@ -2590,30 +2591,24 @@ function pintaApontamento(){
     </section>`;
   }).join('');
 
-  /* iniciar linha (padrão) */
-  document.querySelectorAll('#apont [data-iniciarlinha]').forEach(b => b.onclick = () => {
-    LINHA_INICIADA[b.dataset.iniciarlinha] = AGORA.getTime();
+  /* INICIAR LINHA com hora informada — vale para todas as linhas */
+  document.querySelectorAll('#apont [data-iniciarhora]').forEach(b => b.onclick = () => {
+    const linhaId = b.dataset.iniciarhora;
+    const campo = document.getElementById('ini-hora-' + linhaId);
+    const valor = campo ? campo.value : JORNADA.inicioPadrao;
+    const [h,m] = valor.split(':').map(Number);
+    if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
+    LINHA_INICIADA[linhaId] = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    flash('Linha iniciada · contagem valendo');
+    flash(`${nomeLinha(linhaId)} iniciada às ${valor}`);
     pintaTudo();
   });
 
-  /* iniciar ENVASE com hora manual (começa antes da Paula chegar) */
-  document.querySelectorAll('#apont [data-iniciarenvase]').forEach(b => b.onclick = () => {
-    const campo = document.getElementById('ini-env');
-    const [h,m] = (campo ? campo.value : '06:00').split(':').map(Number);
-    const ts = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
-    LINHA_INICIADA[b.dataset.iniciarenvase] = ts;
-    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    flash(`Envase iniciado às ${campo ? campo.value : '06:00'}`);
-    pintaTudo();
-  });
-
-  /* ajustar a hora do envase depois de iniciado */
-  document.querySelectorAll('#apont [data-horaenvase]').forEach(b => b.onclick = () => {
-    const linhaId = b.dataset.horaenvase;
+  /* AJUSTAR a hora de início depois — recalcula o "deveria ter" */
+  document.querySelectorAll('#apont [data-ajustarhora]').forEach(b => b.onclick = () => {
+    const linhaId = b.dataset.ajustarhora;
     const atual = new Date(LINHA_INICIADA[linhaId]);
-    const nova = prompt('A que horas o envase REALMENTE começou? (HH:MM)\n\nO "deveria ter" será recalculado a partir desse horário.',
+    const nova = prompt(`A que horas a linha ${nomeLinha(linhaId)} REALMENTE começou? (HH:MM)\n\nO "deveria ter" será recalculado a partir desse horário.`,
       String(atual.getHours()).padStart(2,'0') + ':' + String(atual.getMinutes()).padStart(2,'0'));
     if(!nova) return;
     const [h,m] = nova.split(':').map(Number);
@@ -2621,19 +2616,18 @@ function pintaApontamento(){
     const novoTs = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
     LINHA_INICIADA[linhaId] = novoTs;
 
-    // move o início REAL de cada lote em produção do envase desta linha.
-    // como o "deveria ter" = tempo líquido × velocidade, mudar o início
-    // recalcula a quantidade esperada sozinho.
-    const postosEnvase = QUADROS.filter(q => q.linha === linhaId && ehGranel(q.id)).map(q => q.id);
+    // move o início real dos lotes JÁ INICIADOS desta linha, para o
+    // "deveria ter" (tempo × ritmo) refletir o horário correto.
     let movidos = 0;
     EVENTOS.forEach(e => {
       if(e.tipo === 'lote_iniciado'){
         const l = LOTES.find(x => x.id === e.lote);
-        if(l && postosEnvase.includes(l.posto)){ e.ts = novoTs; movidos++; }
+        if(l && l.linha === linhaId){ e.ts = novoTs; movidos++; }
       }
     });
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    flash(movidos ? `Envase recolocado às ${nova} · deveria-ter recalculado` : `Hora ajustada para ${nova}`);
+    flash(movidos ? `${nomeLinha(linhaId)} recolocada às ${nova} · deveria-ter recalculado`
+                  : `Hora ajustada para ${nova}`);
     pintaTudo();
   });
 
@@ -3128,6 +3122,8 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
 
 
 
