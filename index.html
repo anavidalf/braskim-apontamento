@@ -289,6 +289,8 @@
   .rota .sep{color:var(--neutro);font-family:'DM Mono',monospace;font-size:11px}
   .shrink-info{margin-top:6px;padding:6px 10px;background:#eef2fb;border:1px solid #b8c8e8;border-radius:7px;font-size:12px;color:#2c4a7c}
   .mix-info{margin-top:6px;padding:8px 11px;background:#eef7f0;border:1px solid #a8d5b5;border-radius:7px;font-size:12px;color:#2c6b3f;line-height:1.5}
+  .sub-produto td{background:#fafbfc;font-size:12px;color:var(--apagado);border-top:1px dashed var(--linha)}
+  .sub-produto td:first-child{color:var(--tinta);font-weight:500}
   .conf-motivo{margin-top:6px;padding:8px 11px;background:#fff4e0;border:1px solid #f0c674;border-radius:7px;font-size:12px;color:#8a5a00;line-height:1.5}
   .alerta-parse{background:#fdf1e0;color:#92400e;font-family:'DM Mono',monospace;font-size:10px;padding:3px 7px;border-radius:5px;display:inline-block;margin-top:4px}
 
@@ -770,6 +772,14 @@
 
 
 
+
+
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -798,8 +808,12 @@ const LINHA_INICIADA = {};    // {linhaId: timestamp do início real}
    CT12 CX144 (mix de pedra): 144 pedras em 7min10s = 20,1 un/min.
    DP72: ainda não medido. */
 const VEL_EMBALAGEM = {
-  'CT12 CX144': {velUnMin: 144 / (7 + 10/60), fonte:'medido: 144 pedras em 7min10s'}
+  // média de 6 cronometragens: 7:07, 7:08, 7:26, 8:12, 7:16, 7:48 → média 7:30 (449,5s)
+  // MEDIDO COM 1 PESSOA — escala com a lotação do posto.
+  'CT12 CX144': {velUnMin: 144 / (449.5/60), porPessoa:true,
+                 fonte:'média de 6 medições: 7min30s por caixa, 1 pessoa'}
 };
+const EMB_REFERENCIA = 'CT12 CX144';   // usada para mostrar o ritmo do posto manual na config
 
 /* ---------------- LOTAÇÃO POR POSTO ---------------- */
 /* Quantos operadores em cada posto. Muda o padrão dos postos manuais.
@@ -828,10 +842,22 @@ const SHRINK_PESSOAS = 1;   // posto de shrink, quando existir separado
 /* LÍQUIDOS: 3 produtos na mesma linha (FR01 = frasco).
    Só o limpador foi cronometrado. Difusor e saponáceo faltam medir. */
 const PRODUTOS_LIQ = [
-  {nome:'Limpador perfumado', ml:120, unPorCaixa:12, velUnMin:7.0, medido:true},
-  {nome:'Difusor de ambientes', ml:null, unPorCaixa:null, velUnMin:null, medido:false},
-  {nome:'Saponáceo', ml:null, unPorCaixa:null, velUnMin:null, medido:false}
+  {nome:'Limpador perfumado',   ml:120,  unPorCaixa:12, velUnMin:7.0,  pessoas:2, medido:true},
+  {nome:'Difusor de ambientes', ml:null, unPorCaixa:12, velUnMin:null, pessoas:2, medido:false},
+  {nome:'Saponáceo',            ml:null, unPorCaixa:12, velUnMin:5.0,  pessoas:3, medido:true}
 ];
+
+/* velocidade por PRODUTO quando o mesmo posto roda itens de ritmos diferentes.
+   Na linha de líquidos o frasco muda o tempo: limpador 7 un/min, saponáceo 5. */
+const VEL_PRODUTO = [
+  {padrao:/saponáceo|saponaceo/i, velUnMin:5.0, fonte:'medido'},
+  {padrao:/limpador/i,            velUnMin:7.0, fonte:'medido: 120mL'}
+];
+function velDoProduto(desc){
+  if(!desc) return null;
+  const m = VEL_PRODUTO.find(v => v.padrao.test(desc));
+  return m ? m.velUnMin : null;
+}
 
 const LINHAS = [
   {id:'GEL',   nome:'Gel Sanitário'},
@@ -1443,9 +1469,12 @@ function pintaLotacao(){
   if(!tb) return;
   tb.innerHTML = QUADROS.map(q => {
     const cfg = LOTACAO[q.id] || {pessoas:1, fixo:true};
+    const vref = VEL_EMBALAGEM[EMB_REFERENCIA];
     const escala = cfg.cxHoraPorPessoa
       ? `${cfg.cxHoraPorPessoa} cx/hora por pessoa · atual ${cfg.pessoas * cfg.cxHoraPorPessoa} cx/hora`
-      : (q.manual ? 'posto manual' : 'ritmo de máquina');
+      : (q.manualFixo && vref
+          ? `${vref.velUnMin.toFixed(1)} un/min por pessoa (${EMB_REFERENCIA}) · medido`
+          : (q.manual ? 'posto manual' : 'ritmo de máquina'));
     const vel = velDoQuadro(q, null);
     const fr = (FATOR_RITMO[q.linha] || {v:1}).v;
     const meta = q.meta;
@@ -1459,7 +1488,19 @@ function pintaLotacao(){
                style="width:64px;text-align:right;border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace">
       </td>
       <td class="rot">${escala}</td>
-    </tr>`;
+    </tr>
+    ${q.id === 'LIQ' ? PRODUTOS_LIQ.map(pl => {
+      const fr = (FATOR_RITMO.LIQ || {v:1}).v;
+      const vreal = pl.velUnMin ? (pl.velUnMin * fr) : null;
+      return `<tr class="sub-produto">
+        <td style="padding-left:26px">↳ ${pl.nome}${pl.ml ? ` <span class="rot">${pl.ml}mL</span>` : ''}</td>
+        <td class="rot">${pl.unPorCaixa} un/caixa</td>
+        <td class="num mono">${vreal ? vreal.toFixed(1) + ' <span class="rot">un/min</span>' : '<span class="rot">falta medir</span>'}
+          ${pl.velUnMin ? `<div class="rot" style="margin-top:3px">${pl.velUnMin} × ${fr} fator</div>` : ''}</td>
+        <td class="num mono">${pl.pessoas}</td>
+        <td class="rot">${pl.medido ? 'medido' : 'sem cronometragem'}</td>
+      </tr>`;
+    }).join('') : ''}`;
   }).join('');
 
   tb.querySelectorAll('[data-lot]').forEach(inp => inp.onchange = () => {
@@ -1562,7 +1603,7 @@ const QUADROS = [
   {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:68.0},
   {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:65.0},
   {id:'PAST-BLC',  linha:'PAST',  nome:'Corte de bloco',        curto:'Bloco',  meta:null},   // bloco sanitário · medir amanhã
-  {id:'PAST-BLI',  linha:'PAST',  nome:'Blister',               curto:'Blister',meta:null},   // bloco sanitário · medir amanhã
+  {id:'PAST-BLI',  linha:'PAST',  nome:'Blister',               curto:'Blister',meta:18.0},   // bloco sanitário · tempo de máquina
   {id:'PAST-SHR',  linha:'PAST',  nome:'Shrink',                curto:'Shrink', meta:null},   // etapa de shrink · medir
   {id:'PAST-CX',   linha:'PAST',  nome:'Caixa',                 curto:'Caixa',  meta:null},   // encaixotamento
   {id:'PEDRA-PR',  linha:'PEDRA', nome:'Prensa / Embaladora',   curto:'Prensa', meta:50.0},
@@ -1653,14 +1694,18 @@ function velDoQuadro(q, lote){
     return pessoas * CR_MAN_CXH * un / 60;
   }
   if(q.manualFixo){
-    // velocidade vem da EMBALAGEM medida, não do posto
+    // velocidade vem da EMBALAGEM medida (por pessoa), escalada pela lotação
+    const pessoas = pessoasDoPosto(q.id);
+    let vm = null;
     if(lote){
       const emb = EMBALAGENS.find(e => e.id === lote.embalagem);
       const cod = emb ? emb.nome.split(' · ')[0] : null;
-      const vm = cod && VEL_EMBALAGEM[cod];
-      if(vm) return vm.velUnMin;
+      vm = cod ? VEL_EMBALAGEM[cod] : null;
+    } else {
+      vm = VEL_EMBALAGEM[EMB_REFERENCIA];   // referência para a tela de Configuração
     }
-    return q.meta || null;   // sem medição da embalagem: sem tempo
+    if(!vm) return q.meta || null;
+    return vm.porPessoa ? vm.velUnMin * pessoas : vm.velUnMin;
   }
   return q.meta ? q.meta * f : null;
 }
@@ -1830,14 +1875,19 @@ function decodificaRota(desc){
      PASTILHA Corte  → Embaladora FP01 → [CR03]
      PEDRA    Prensa → Embaladora FP01 → [CR01]
    O padrão do lote sai do gargalo — nunca de um número único de "velocidade da linha". */
-function gargaloDaRota(rota, linha, pessoasManual = 1){
+function gargaloDaRota(rota, linha, pessoasManual = 1, desc = null){
   const P = POSTOS[linha];
   if(!P) return null;
 
   const f = (FATOR_RITMO[linha] || {v:1}).v;    // padrão = ideal × fator de ritmo
   const etapas = [];
 
-  if(P.granel) etapas.push({posto:P.granel.nome, ideal:P.granel.ideal, vel:P.granel.ideal * f});
+  // velocidade específica do produto (ex: saponáceo 5 un/min vs limpador 7)
+  const velProd = velDoProduto(desc);
+
+  if(P.granel) etapas.push({posto:P.granel.nome,
+                            ideal: velProd || P.granel.ideal,
+                            vel: (velProd || P.granel.ideal) * f});
 
   // pedra e pastilha SEMPRE passam pelo flowpack, mesmo quando o nome só mostra CR
   if(P.fp && (linha === 'PEDRA' || linha === 'PAST'))
@@ -1861,9 +1911,11 @@ function gargaloDaRota(rota, linha, pessoasManual = 1){
   // Não passa por prensa nem flowpack. Se a embalagem foi medida, usa o tempo;
   // senão, fica sem tempo (aguardando medição), mas nunca herda a máquina.
   if(rota.ehMix){
-    const vm = rota.codEmb && VEL_EMBALAGEM[rota.codEmb] ? VEL_EMBALAGEM[rota.codEmb].velUnMin : null;
-    if(!vm) return null;   // mix não medido: sem tempo, mas não usa prensa/fp
-    return {posto:'Montagem manual da caixa mix', ideal:vm, vel:vm,
+    const cfg = rota.codEmb ? VEL_EMBALAGEM[rota.codEmb] : null;
+    if(!cfg) return null;   // mix não medido: sem tempo, mas não usa prensa/fp
+    const pessoas = pessoasDoPosto('PEDRA-CX');
+    const vm = cfg.porPessoa ? cfg.velUnMin * pessoas : cfg.velUnMin;
+    return {posto:`Montagem manual da caixa mix (${pessoas}p)`, ideal:vm, vel:vm,
             rota:[{posto:'Montagem manual', vel:vm}], fator:1, perdaRitmo:0};
   }
 
@@ -1914,13 +1966,16 @@ function lerProgramacao(){
     if(um === 'CX' && rota.unPorEmb){
       unidades = qtdPlano * rota.unPorEmb;
     } else if(ehBatelada){
-      unidades = qtdPlano * (TAM_BATELADA[linha] || 8000);
-      avisoUm = 'Plano em BATELADAS (' + qtdPlano + '), convertido para ' + nf(unidades) + ' un.';
+      const tam = TAM_BATELADA[linha] || 8000;
+      unidades = qtdPlano * tam;
+      const meio = qtdPlano === 0.5 ? ' (meio lote, para mix)' : '';
+      avisoUm = qtdPlano + (qtdPlano === 1 ? ' lote' : ' lote(s)') + ' de ' + nf(tam) +
+                ' = ' + nf(unidades) + ' un' + meio + '.';
     } else {
       unidades = qtdPlano;
     }
 
-    const g = gargaloDaRota(rota, linha);
+    const g = gargaloDaRota(rota, linha, 1, desc);
     const tempo = g ? unidades / g.vel : null;
     if(avisoUm) rota.avisos.push(avisoUm);
     if(!g) rota.avisos.push('Posto sem velocidade cronometrada — sem tempo padrão.');
@@ -1930,7 +1985,7 @@ function lerProgramacao(){
 
     const ehMixDesc = /\bmix\b/i.test(desc);
     return {ordem, desc, um, obs:'', linha, rota, qtdPlano, unidades, gargalo:g, tempo,
-            lote, defeito:'', postoId,
+            lote, defeito:'', postoId, ehBatelada,
             bateladas: ehMixDesc ? 1 : Math.max(1, parseLotes(lote).length)};
   }).filter(Boolean);
 
@@ -2010,15 +2065,22 @@ document.getElementById('btn-pdf') && (document.getElementById('btn-pdf').onclic
 
 /* campo de programação começa vazio */
 
-let PROG_SUBIDA = null;   // data da última subida — trava 1x/dia
+const PROG_SUBIDAS = new Set();   // datas de PRODUÇÃO já subidas — permite dias diferentes
 document.getElementById('btn-subir').onclick = () => {
-  const hoje = AGORA.toLocaleDateString('pt-BR');
-  if(PROG_SUBIDA === hoje){
-    if(!confirm('A programação de hoje já foi subida.\n\nSubir de novo cria as ordens em duplicidade. Continuar mesmo assim?'))
+  // data de PRODUÇÃO desta programação (não a data do clique)
+  const dataProducao = (() => {
+    const pd = document.getElementById('prog-data');
+    if(pd && pd.value){ const [a,m,d] = pd.value.split('-'); return `${d}/${m}/${a}`; }
+    return AGORA.toLocaleDateString('pt-BR');
+  })();
+  if(PROG_SUBIDAS.has(dataProducao)){
+    if(!confirm(`A programação de ${dataProducao} já foi subida.\n\nSubir de novo cria as ordens em duplicidade. Continuar mesmo assim?`))
       return;
   }
   let n = 0;
-  PROG.filter(p => p.gargalo && p.unidades > 0).forEach((p, i) => {
+  PROG.filter(p => p.gargalo && p.unidades > 0 && !p.ehBatelada).forEach((p, i) => {
+    // ordens de "Batelada" são a ordem do granel — a Paula aponta o resultado
+    // (a pedra FP01 / o mix), não a batelada. Por isso não viram lote no apontamento.
     // a importação alimenta o CADASTRO — não cria lote órfão
     const pid = 'IMP' + Date.now().toString().slice(-5) + i;
     PRODUTOS.push({id:pid, nome:p.desc, linha:p.linha});
@@ -2104,10 +2166,11 @@ document.getElementById('btn-subir').onclick = () => {
       n++;
     }
   });
-  flash(`${n} ordens subiram para o chão de fábrica`);
-  PROG_SUBIDA = hoje;
-  document.getElementById('btn-subir').disabled = true;
-  document.getElementById('btn-subir').textContent = 'Programação de hoje já subida';
+  flash(`${n} ordens de ${dataProducao} subiram para o chão de fábrica`);
+  PROG_SUBIDAS.add(dataProducao);
+  // botão continua ativo — a Priscila pode subir a programação de outro dia
+  document.getElementById('cola').value = '';
+  PROG = [];
   pintaTudo();
   irPara('dashboard');
 };
@@ -3011,23 +3074,8 @@ function tique(){
   const fimTurno = new Date(2026,6,14,15,48).getTime();
   document.getElementById('restante').textContent = hhmm(Math.max(0,(fimTurno - AGORA.getTime())/60000));
 
-  // gera contagem automática nas linhas rodando (o operador "apertando o botão")
-  LINHAS.forEach(li => {
-    const e = estadoLinha(li.id);
-    if(e.tipo !== 'lote' || e.parada) return;
-    const lote = e.r.lote;
-    if(e.r.produzida >= lote.prevista) return;
-
-    const fator = fatorEmb(lote.embalagem);
-    // ritmo real: um pouco abaixo do ideal, com variação
-    const ritmo = lote.velIdeal * (li.id === 'PAST' ? 0.79 : 0.95);
-    const segPorCaixa = fator / (ritmo / 60);
-    const ultima = ativos().filter(x => x.lote === lote.id && x.tipo === 'contagem')
-      .sort((a,b) => b.ts - a.ts)[0];
-    if(!ultima || (AGORA.getTime() - ultima.ts)/1000 >= segPorCaixa * (0.85 + Math.random()*0.3)){
-      registrar({tipo:'contagem', linha:li.id, lote:lote.id, qtdEmb:1});
-    }
-  });
+  // NADA de contagem automática: o "Produzido" é só o que a supervisora digita.
+  // O cálculo automático vive apenas no "Deveria ter" (tempo × ritmo).
 
   pintaTudo();
 }
@@ -3047,6 +3095,14 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
 
 
 
