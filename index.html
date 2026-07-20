@@ -783,6 +783,9 @@
 
 
 
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -948,9 +951,10 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-let AGORA = new Date(2026, 6, 14, 14, 12, 38);   // relógio da fábrica (simulado)
-const DIA_HOJE  = '14/07';
-const DIA_ONTEM = '13/07';
+let AGORA = new Date();   // relógio REAL da fábrica
+const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
+const DIA_HOJE  = _dm(AGORA);
+const DIA_ONTEM = _dm(new Date(AGORA.getTime() - 86400000));
 const min = m => m * 60000;
 
 let TURNOS = [];
@@ -1171,7 +1175,7 @@ function flash(msg){
    SEED — meio de turno, para a tela já nascer viva
 ================================================================= */
 (function seed(){
-  const hoje = d => new Date(2026,6,14,...d).getTime();
+  const hoje = d => new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), ...d).getTime();
   // Só os turnos (configuração). Sem lotes de exemplo — a fábrica começa limpa.
   LINHAS.forEach(li => TURNOS.push({
     id:'T-'+li.id, linha:li.id, nome:'Jornada',
@@ -1201,7 +1205,8 @@ function pintaDashboard(){
   const atrasados = estados.filter(x => x.e.s === 'atraso').length;
 
   // OEE = D × P × Q  (com o refugo de embalagem que vocês registram)
-  const turnoIni = new Date(2026,6,14,6,0).getTime();
+  const [_hi,_mi] = JORNADA.inicioPadrao.split(':').map(Number);
+  const turnoIni = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), _hi, _mi).getTime();
   const dispPlan = (AGORA.getTime() - turnoIni)/60000 * LINHAS.length - 60*LINHAS.length;
   const operando = LOTES.map(realizado).filter(Boolean).reduce((s,r) => s + Math.max(0,r.liquido), 0);
   const D = Math.min(1, operando / dispPlan);
@@ -1523,8 +1528,8 @@ function q_nome(pid){ const q = quadro(pid); return q ? q.nome : pid; }
 document.getElementById('btn-turno').onclick = () => {
   const [hi,mi] = document.getElementById('t-ini').value.split(':').map(Number);
   const [hf,mf] = document.getElementById('t-fim').value.split(':').map(Number);
-  let ini = new Date(2026,6,14,hi,mi).getTime();
-  let fim = new Date(2026,6,14,hf,mf).getTime();
+  let ini = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), hi, mi).getTime();
+  let fim = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), hf, mf).getTime();
   if(fim <= ini) fim += min(24*60);            // turno que vira a meia-noite
   const dados = {
     linha:document.getElementById('t-linha').value,
@@ -2116,7 +2121,9 @@ document.getElementById('btn-subir').onclick = () => {
       if(pd && pd.value){ const [aa,mm,dd] = pd.value.split('-'); return `${dd}/${mm}`; }
       return DIA_HOJE;
     })();
-    const numOrdem = p.ordem.replace(/\D/g,'').slice(-6) || String(LOTES.length + 1);
+    // "MTS085001 - 001" -> 085001 (a parte antes do traço é o número da ordem)
+    const numOrdem = (p.ordem.split('-')[0].replace(/\D/g,'') ||
+                      p.ordem.replace(/\D/g,'').slice(-6) || String(LOTES.length + 1));
 
     // GRANEL vira N bateladas. EMBALAGEM é uma ordem contínua.
     // O código do lote nasce VAZIO — quem preenche é a Paula, no dia.
@@ -3081,12 +3088,13 @@ function pintaTudo(){
 
 /* simulação: as linhas produzem sozinhas, como o chão de fábrica faria */
 function tique(){
-  AGORA = new Date(AGORA.getTime() + 1000);
+  AGORA = new Date();   // hora real, a cada segundo
 
   document.getElementById('relogio').textContent = AGORA.toLocaleTimeString('pt-BR',{hour12:false});
   document.getElementById('data').textContent =
     AGORA.toLocaleDateString('pt-BR',{weekday:'long',day:'numeric',month:'long'}).replace(/^\w/,c => c.toUpperCase());
-  const fimTurno = new Date(2026,6,14,15,48).getTime();
+  const [_hf,_mf] = JORNADA.fim.split(':').map(Number);
+  const fimTurno = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), _hf, _mf).getTime();
   document.getElementById('restante').textContent = hhmm(Math.max(0,(fimTurno - AGORA.getTime())/60000));
 
   // NADA de contagem automática: o "Produzido" é só o que a supervisora digita.
@@ -3110,6 +3118,9 @@ setInterval(tique, 1000);
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
 
 
 
