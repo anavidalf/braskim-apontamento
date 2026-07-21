@@ -948,6 +948,11 @@
 
 
 
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -964,7 +969,7 @@ const JORNADA = {
   horasTrabalho: 9
 };
 // postos que NÃO param no almoço (seguem por revezamento)
-const NAO_PARA_ALMOCO = ['GEL-ENV','PAST-COR','PAST-FP','GEL-CR01'];
+const NAO_PARA_ALMOCO = ['GEL-ENV','PAST-FP','GEL-CR01'];
 const naoParaAlmoco = pid => NAO_PARA_ALMOCO.includes(pid);
 
 /* Linha só começa a contar quando a supervisora clica INICIAR.
@@ -1000,7 +1005,6 @@ const LOTACAO = {
   'GEL-ENV':  {pessoas:4, fixo:true},
   'GEL-CR01': {pessoas:1, fixo:true},
   'GEL-CR04': {pessoas:1, fixo:false, cxHoraPorPessoa:10},   // 10 caixas/hora por pessoa · selecionável
-  'PAST-COR': {pessoas:4, fixo:true},
   'PAST-FP':  {pessoas:4, fixo:true},
   'PAST-BLC': {pessoas:1, fixo:true},   // corte de bloco
   'PAST-BLI': {pessoas:1, fixo:true},   // blister
@@ -1109,7 +1113,7 @@ let MOTIVOS = [
   {nome:'Falta de funcionário',   cat:'Pessoas',       penaliza:true,  postos:['GEL-CR04','PAST-FP']},
   {nome:'Troca de bobina',        cat:'Processo',      penaliza:true,  postos:['PAST-FP','PEDRA-FP']},
   {nome:'Quebra do flowpack',     cat:'Manutenção',    penaliza:true,  postos:['PAST-FP','PEDRA-FP']},
-  {nome:'Atraso da extrusora',    cat:'Processo',      penaliza:true,  postos:['PAST-COR']},
+  {nome:'Atraso da extrusora',    cat:'Processo',      penaliza:true,  postos:['PAST-FP']},
   {nome:'Ajuste da prensa',       cat:'Processo',      penaliza:true,  postos:['PEDRA-PR']}
 ];
 const motivo = n => MOTIVOS.find(m => m.nome === n) || {cat:'—', penaliza:true};
@@ -1122,7 +1126,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 16:26';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 18:33';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1317,22 +1321,53 @@ function salvarTurnos(){
 /* Os postos de shrink por linha viraram um só ('SHRINK'), e os postos de
    caixa do gel e da pedra deixaram de existir. Ordens já gravadas apontam
    para os antigos — sem isso elas sumiriam da tela. */
-const POSTO_RENOMEADO = {
-  'GEL-SHR':'SHRINK', 'PAST-SHR':'SHRINK', 'PEDRA-SHR':'SHRINK',
-  'GEL-CX':'SHRINK',  'PEDRA-CXX':'PEDRA-CX'
+const POSTO_RENOMEADO = {   // viraram o posto único de shrink
+  'GEL-SHR':'SHRINK', 'PAST-SHR':'SHRINK', 'PEDRA-SHR':'SHRINK'
 };
+/* Postos que deixaram de existir. NÃO podem ser renomeados para outro posto —
+   a etapa some da rota, e a ordem passa a concluir na etapa anterior. */
+const POSTO_REMOVIDO = ['GEL-CX', 'PEDRA-CXX', 'PAST-COR'];
 function migrarPostos(){
   let n = 0;
   LOTES.forEach(l => {
     let mudou = false;
     if(POSTO_RENOMEADO[l.posto]){ l.posto = POSTO_RENOMEADO[l.posto]; mudou = true; }
+
     if(l.rotaPostos){
-      const nova = l.rotaPostos.map(p => POSTO_RENOMEADO[p] || p)
-                               .filter((p,i,a) => a.indexOf(p) === i);   // sem repetido
-      if(nova.join() !== l.rotaPostos.join()){
+      const nova = l.rotaPostos
+        .map(p => POSTO_RENOMEADO[p] || p)
+        .filter(p => POSTO_REMOVIDO.indexOf(p) < 0)      // etapa extinta sai da rota
+        .filter((p,i,a) => a.indexOf(p) === i);          // sem repetido
+      if(!nova.length){ l.rotaPostos = null; l.etapaLiberada = null; mudou = true; }
+      else if(nova.join() !== l.rotaPostos.join()){
         if(l.etapaLiberada != null) l.etapaLiberada = Math.min(l.etapaLiberada, nova.length - 1);
-        l.rotaPostos = nova; mudou = true;
+        l.rotaPostos = nova.length > 1 ? nova : null;
+        if(nova.length === 1){ l.posto = nova[0]; l.etapaLiberada = null; }
+        mudou = true;
       }
+    }
+
+    // se o posto principal foi extinto, reaplica a regra atual pelo nome do produto
+    if(POSTO_REMOVIDO.indexOf(l.posto) >= 0){
+      const prod = PRODUTOS.find(p => p.id === l.produto);
+      if(prod){
+        const rota = decodificaRota(prod.nome);
+        const emb  = EMBALAGENS.find(e => e.id === l.embalagem);
+        l.posto = postoDaOrdem(rota, linhaDoProduto(prod.nome), (emb && emb.fator > 1) ? 'CX' : 'UNID');
+      } else {
+        l.posto = l.linha === 'PAST' ? 'PAST-FP' : l.posto;
+      }
+      mudou = true;
+    }
+
+    // as marcas de "lote concluído" também são por posto
+    if(l.loteConcluido){
+      const novo = {};
+      Object.keys(l.loteConcluido).forEach(p => {
+        if(POSTO_REMOVIDO.indexOf(p) >= 0) return;
+        novo[POSTO_RENOMEADO[p] || p] = l.loteConcluido[p];
+      });
+      if(JSON.stringify(novo) !== JSON.stringify(l.loteConcluido)){ l.loteConcluido = novo; mudou = true; }
     }
     if(mudou){ nuvemSalvar('lotes', l.id, l); n++; }
   });
@@ -1556,8 +1591,14 @@ function mesmoDia(a, b){
 }
 function realizado(lote, postoCtx){                 // === vw_lote_realizado
   // para lotes em cascata (bloco), filtra eventos da etapa (posto) atual
-  const evs = ativos().filter(e => e.lote === lote.id &&
-    (!lote.rotaPostos || !postoCtx || !e.posto || e.posto === postoCtx));
+  const evs = ativos().filter(e => {
+    if(e.lote !== lote.id) return false;
+    if(!lote.rotaPostos || !postoCtx) return true;
+    // Evento antigo sem posto pertence à PRIMEIRA etapa da rota. Antes valia
+    // para todas, e o shrink aparecia "finalizado" sem nunca ter rodado.
+    const postoDoEvento = e.posto || lote.rotaPostos[0];
+    return postoDoEvento === postoCtx;
+  });
   const ini = evs.find(e => e.tipo === 'lote_iniciado');
   if(!ini) return null;
   const fim = evs.find(e => e.tipo === 'lote_finalizado');
@@ -2251,7 +2292,6 @@ const QUADROS = [
   {id:'GEL-ENV',   linha:'GEL',   nome:'Envase',                curto:'Envase', meta:78.0},
   {id:'GEL-CR01',  linha:'GEL',   nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:63.0},
   {id:'GEL-CR04',  linha:'GEL',   nome:'CR04 · Cartucho manual',curto:'CR04',   meta:null, manual:true},
-  {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:68.0},
   {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:65.0},
   {id:'PAST-BLC',  linha:'PAST',  nome:'Corte de bloco',        curto:'Bloco',  meta:null, soLote:true},   // registra só início e fim do lote
   {id:'PAST-BLI',  linha:'PAST',  nome:'Blister',               curto:'Blister',meta:18.0},   // bloco sanitário · tempo de máquina
@@ -2274,7 +2314,7 @@ const quadro = id => QUADROS.find(q => q.id === id);
 const AREAS = [
   {id:'GEL-ENVASE', linha:'GEL',   nome:'Gel · Envase',     postos:['GEL-ENV']},
   {id:'GEL-EMB',    linha:'GEL',   nome:'Gel · Embalagem',  postos:['GEL-CR01','GEL-CR04']},
-  {id:'PAST',       linha:'PAST',  nome:'Pastilha',         postos:['PAST-COR','PAST-FP','PAST-BLC','PAST-BLI','PAST-CX']},
+  {id:'PAST',       linha:'PAST',  nome:'Pastilha',         postos:['PAST-FP','PAST-BLC','PAST-BLI','PAST-CX']},
   {id:'PEDRA',      linha:'PEDRA', nome:'Pedra',            postos:['PEDRA-PR','PEDRA-CR','PEDRA-CX']},
   {id:'SHRINK',     linha:'SHRINK',nome:'Shrink',           postos:['SHRINK']},
   {id:'LIQ',        linha:'LIQ',   nome:'Líquidos',         postos:['LIQ']}
@@ -2285,7 +2325,7 @@ const AREAS = [
 /* Postos onde a Paula fecha o LOTE (tem a quantidade final).
    Envase do gel, embaladora da pastilha e embaladora/prensa da pedra. */
 const POSTOS_CONCLUI_LOTE = ['GEL-ENV', 'PAST-FP', 'PEDRA-PR'];
-const POSTOS_GRANEL = ['GEL-ENV','PAST-COR','PAST-FP','PEDRA-PR','PAST-BLC'];   // pastilha (corte e embaladora) e corte de bloco também quebram em lotes
+const POSTOS_GRANEL = ['GEL-ENV','PAST-FP','PEDRA-PR','PAST-BLC'];   // pastilha (corte e embaladora) e corte de bloco também quebram em lotes
 const ehGranel = pid => POSTOS_GRANEL.includes(pid);
 
 /* tamanho típico da batelada, por linha (cadastro) */
@@ -2336,8 +2376,7 @@ function postoDaOrdem(rota, linha, um){
       if(rota.temShrink)  return 'SHRINK';
       return 'PAST-CX';
     }
-    if(rota.codPrim)      return 'PAST-FP';
-    return 'PAST-COR';
+    return 'PAST-FP';   // a pastilha entra pela embaladora (o corte saiu da tela)
   }
   if(linha === 'PEDRA'){
     // Embalagem MANUAL (cartela CT ou display DP) e qualquer mix: usam pedras
@@ -3398,13 +3437,19 @@ function pintaApontamento(){
                   : !r
                     ? (proxima
                         ? `<button class="bt iniciar" data-ini="${l.id}" data-posto-ctx="${q.id}">Iniciar</button>
+                           <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                                   title="Tirar da tela sem apontar produção"
+                                   style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>
                            <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`
                         : `<span class="rot">na fila</span>
+                           <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                                   title="Tirar da tela sem apontar produção"
+                                   style="border-color:#bcd3f7;color:#2c4a7c;padding:5px 10px;font-size:11px">✓ Concluir lote</button>
                            <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso);padding:5px 10px;font-size:11px">Cancelar</button>`)
                     : par
                       ? ''
                       : `<button class="bt parar" data-par="${l.id}">Parar</button>
-                         <button class="bt" data-fim="${l.id}">Finalizar e ir para a próxima</button>
+                         <button class="bt" data-fim="${l.id}" data-posto-ctx="${q.id}">Finalizar e ir para a próxima</button>
                          <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
                                  title="A quantidade deste lote está fechada — sai do apontamento"
                                  style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>
@@ -3468,7 +3513,7 @@ function pintaApontamento(){
     l.loteConcluido = l.loteConcluido || {};
     l.loteConcluido[pid] = AGORA.getTime();
     // fecha junto só se chegou a rodar e ainda estava aberto
-    if(rr && !rr.finalizado && !cancelada)
+    if(rr && !rr.finalizado && !cancelada)   // só fecha o que chegou a rodar
       registrar({tipo:'lote_finalizado', linha:l.linha, lote:l.id, origem:'supervisao', posto:pid});
     nuvemSalvar('lotes', l.id, l);
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -3632,7 +3677,8 @@ function pintaApontamento(){
 
   ev('[data-fim]', b => {
     const l = LOTES.find(x => x.id === b.dataset.fim);
-    registrar({tipo:'lote_finalizado', linha:l.linha, lote:l.id, origem:'supervisao'});
+    const postoFim = b.dataset.postoCtx || (l.rotaPostos ? l.rotaPostos[l.etapaLiberada || 0] : l.posto);
+    registrar({tipo:'lote_finalizado', linha:l.linha, lote:l.id, origem:'supervisao', posto:postoFim});
     // NÃO inicia a próxima sozinho: o intervalo até o próximo início É o preparo,
     // e é dele que sai o setup medido. Iniciar automático apagaria esse dado.
     const prox = LOTES.filter(x => x.posto === l.posto && !realizado(x))[0];
@@ -4154,6 +4200,11 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
 
 
 
