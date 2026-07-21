@@ -937,6 +937,12 @@
 
 
 
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -975,7 +981,10 @@ const VEL_EMBALAGEM = {
   // média de 6 cronometragens: 7:07, 7:08, 7:26, 8:12, 7:16, 7:48 → média 7:30 (449,5s)
   // MEDIDO COM 1 PESSOA — escala com a lotação do posto.
   'CT12 CX144': {velUnMin: 144 / (449.5/60), porPessoa:true,
-                 fonte:'média de 6 medições: 7min30s por caixa, 1 pessoa'}
+                 fonte:'média de 6 medições: 7min30s por caixa, 1 pessoa'},
+  // média de 3 cronometragens: 1:59, 2:24, 2:01 → média 2:08 (128s) por caixa de 72
+  'DP72': {velUnMin: 72 / (128/60), porPessoa:true,
+           fonte:'média de 3 medições: 2min08s por caixa, 1 pessoa'}
 };
 const EMB_REFERENCIA = 'CT12 CX144';   // usada para mostrar o ritmo do posto manual na config
 
@@ -1109,7 +1118,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 13:30';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 14:55';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1301,6 +1310,28 @@ function salvarTurnos(){
 }
 
 /* carrega tudo e passa a ouvir mudanças em tempo real */
+function repararIdsDuplicados(){
+  const vistos = {}, dup = [];
+  LOTES.forEach(l => {
+    if(vistos[l.id]) dup.push(l); else vistos[l.id] = l;
+  });
+  if(!dup.length) return 0;
+  dup.forEach(l => {
+    const antigo = l.id;
+    const novo = proximoIdLote();
+    l.id = novo;
+    // leva junto os eventos que apontavam para o id repetido E pertencem a este lote
+    EVENTOS.forEach(e => {
+      if(e.lote === antigo && e.posto && e.posto === l.posto && !e.__remapeado){
+        e.lote = novo; e.__remapeado = true; nuvemSalvar('eventos', e.id, e);
+      }
+    });
+    nuvemApagar('lotes', antigo);
+    nuvemSalvar('lotes', novo, l);
+  });
+  return dup.length;
+}
+
 async function ligarNuvem(){
   if(!NUVEM){ statusNuvem('memória', 'Sem nuvem — dados somem ao atualizar'); return; }
   statusNuvem('ligando', 'Conectando…');
@@ -1335,6 +1366,8 @@ async function ligarNuvem(){
     // o contador de eventos continua de onde parou
     seqEvento = EVENTOS.reduce((m,e) => Math.max(m, e.id || 0), 0);
     SEQ_PROG  = LOTES.reduce((m,l) => Math.max(m, l.ordemProg || 0), 0);
+    const reparados = repararIdsDuplicados();
+    if(reparados) flash(`${reparados} ordem(ns) com código repetido corrigida(s)`);
 
     NUVEM_PRONTA = true;
     statusNuvem('ok', 'Salvo na nuvem');
@@ -1746,15 +1779,22 @@ function pintaDashboard(){
   /* --- QUADROS DE POSTO: caixas previstas × reais, hora a hora --- */
   const quadroHTML = ({q, r}) => {
     if(!r){
-      const plan = LOTES.filter(l => l.posto === q.id && !realizado(l))[0];
+      // inclui as ordens que CHEGAM neste posto por cascata (ex.: shrink depois
+      // da encartuchadeira) — antes só olhava o posto de entrada da ordem.
+      const plan = LOTES.filter(l =>
+        (l.posto === q.id || (l.rotaPostos && l.rotaPostos.indexOf(q.id) >= 0)) &&
+        l.status !== 'cancelado' &&
+        !(l.loteConcluido && l.loteConcluido[q.id]) &&
+        !realizado(l, q.id)
+      ).sort((a,b) => (a.ordemProg || 0) - (b.ordemProg || 0))[0];
       return `
       <article class="lc" data-s="sem_lote">
         <div class="lc-topo">
           <div><div class="lc-nome">${q.nome}</div><div class="lc-prod">${nomeLinha(q.linha)}</div></div>
-          <div class="estado" data-s="sem_lote"><i class="ponto"></i>Sem lote</div>
+          <div class="estado" data-s="sem_lote"><i class="ponto"></i>${plan ? 'Aguardando início' : 'Sem lote'}</div>
         </div>
         <div class="metricas"><div class="m" style="grid-column:1/-1">
-          <div class="val">${plan ? 'Ordem ' + plan.numero + ' aguardando' : 'Nada programado'}</div>
+          <div class="val">${plan ? 'Ordem ' + plan.numero : 'Nada programado'}</div>
           <div class="rot">${plan ? nomeProd(plan.produto) : 'Suba a programação'}</div>
         </div></div>
         <div class="lc-rod"><span>Posto ocioso</span></div>
@@ -2994,7 +3034,10 @@ function apontarQuantidade(loteId, novoTotal){
    Esta função reaplica as regras atuais — só em ordens que NINGUÉM iniciou,
    para não perder apontamento já feito. */
 function reprocessarOrdens(){
-  const naoIniciado = l => !ativos().some(e => e.lote === l.id) &&
+  // Reprocessa quem ainda NÃO TEM QUANTIDADE LANÇADA. Uma ordem só iniciada
+  // (sem produção apontada) pode ser remanejada sem perder nada — o início é
+  // remarcado no lote novo.
+  const naoIniciado = l => !ativos().some(e => e.lote === l.id && e.tipo === 'contagem') &&
                            l.status !== 'cancelado' &&
                            !(l.loteConcluido && Object.keys(l.loteConcluido).length);
   const alvo = LOTES.filter(naoIniciado);
@@ -3045,8 +3088,15 @@ function reprocessarOrdens(){
         PADROES[base.produto] = {vel: base.velIdeal || (g ? g.vel : null),
                                  arranque: base.arranque || 0,
                                  setupMeta: base.setupMeta || null};
-      // apaga os lotes antigos e recria na divisão correta
+      // guarda se algum já tinha sido iniciado, para remarcar no primeiro lote novo
+      const inicioAntigo = ativos()
+        .filter(e => grupo.some(l => l.id === e.lote) && e.tipo === 'lote_iniciado')
+        .sort((a,b) => a.ts - b.ts)[0];
+      // apaga os lotes antigos e anula os eventos que ficariam órfãos
       grupo.forEach(l => {
+        EVENTOS.forEach(e => {
+          if(e.lote === l.id && !e.anulado){ e.anulado = true; nuvemSalvar('eventos', e.id, e); }
+        });
         const i = LOTES.findIndex(x => x.id === l.id);
         if(i >= 0) LOTES.splice(i,1);
         nuvemApagar('lotes', l.id);
@@ -3058,6 +3108,18 @@ function reprocessarOrdens(){
                    embId: base.embalagem, qtd, linhaId: linha, turnoId: base.turno,
                    postoId: novoPosto, dataProg: base.dataProg, loteFab: '',
                    seq: k+1, seqTot: nLotes, rotaPostos});
+      }
+      // remarca o início no primeiro lote novo, com a hora original
+      if(inicioAntigo){
+        const novo = LOTES.filter(l => l.numero === base.numero)
+                          .sort((a,b) => (a.seq||0) - (b.seq||0))[0];
+        if(novo){
+          registrar({tipo:'lote_iniciado', linha:novo.linha, lote:novo.id,
+                     origem:'supervisao', posto:novoPosto});
+          const ev = EVENTOS[EVENTOS.length-1];
+          ev.ts = inicioAntigo.ts;
+          nuvemSalvar('eventos', ev.id, ev);
+        }
       }
       redivididas++;
     } else {
@@ -3109,10 +3171,7 @@ function pintaApontamento(){
         <h2>${li.nome}</h2>
         <div class="risco"></div>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-          ${qs.every(q => inicioDoPosto(q.id))
-            ? `<span class="tag ok">todos os postos iniciados</span>`
-            : `<input type="time" id="ini-hora-${li.id}" value="${JORNADA.inicioPadrao}" style="border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace;font-size:13px">
-               <button class="bt iniciar" data-iniciarhora="${li.id}" title="Marca esta hora nos postos que ainda não começaram">▶ Iniciar os demais</button>`}
+          ${qs.every(q => inicioDoPosto(q.id)) ? `<span class="tag ok">todos os postos iniciados</span>` : ''}
           ${algumIniciado ? `<button class="bt" data-concluirlinha="${li.id}" style="font-size:11px;padding:5px 9px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir linha</button>` : ''}
         </span>
       </div>
@@ -3276,15 +3335,16 @@ function pintaApontamento(){
 
               <td class="num">
                 ${l.status === 'cancelado'
-                  ? '<span class="tag ruim">cancelada</span>'
+                  ? `<span class="tag ruim">cancelada</span>
+                     <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                             title="Tirar da tela de apontamento"
+                             style="margin-left:5px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir</button>`
                   : (r && r.finalizado)
                     ? `<span class="tag ok">finalizada ${hora(r.fim)}</span>
                        <span class="rot" style="display:block;margin:3px 0;font-size:10px">ainda dá para lançar</span>
-                       ${POSTOS_CONCLUI_LOTE.includes(q.id)
-                         ? `<button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
-                                    title="A quantidade deste lote está fechada — sai do apontamento"
-                                    style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>`
-                         : ''}`
+                       <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                               title="A quantidade deste lote está fechada — sai do apontamento"
+                               style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>`
                   : !r
                     ? (proxima
                         ? `<button class="bt iniciar" data-ini="${l.id}" data-posto-ctx="${q.id}">Iniciar</button>
@@ -3295,11 +3355,9 @@ function pintaApontamento(){
                       ? ''
                       : `<button class="bt parar" data-par="${l.id}">Parar</button>
                          <button class="bt" data-fim="${l.id}">Finalizar e ir para a próxima</button>
-                         ${POSTOS_CONCLUI_LOTE.includes(q.id)
-                           ? `<button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
-                                      title="A quantidade deste lote está fechada — sai do apontamento"
-                                      style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>`
-                           : ''}
+                         <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                                 title="A quantidade deste lote está fechada — sai do apontamento"
+                                 style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>
                          <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`}
               </td>
             </tr>
@@ -3352,15 +3410,19 @@ function pintaApontamento(){
     const f = fatorEmb(l.embalagem);
     const feito = rr ? Math.floor(rr.produzida / f) : 0;
     const un = f > 1 ? 'caixas' : 'unidades';
-    if(!confirm(`Concluir o lote ${l.loteFab || l.numero}?\n\nQuantidade final: ${nf(feito)} ${un}.\n\nO lote sai da tela de apontamento.`)) return;
+    const cancelada = l.status === 'cancelado';
+    const msg = cancelada
+      ? `Tirar a ordem cancelada ${l.numero} da tela de apontamento?`
+      : `Concluir o lote ${l.loteFab || l.numero}?\n\nQuantidade final: ${nf(feito)} ${un}.\n\nO lote sai da tela de apontamento.`;
+    if(!confirm(msg)) return;
     l.loteConcluido = l.loteConcluido || {};
     l.loteConcluido[pid] = AGORA.getTime();
-    // se ainda não tinha sido finalizado, fecha junto
-    if(!rr || !rr.finalizado)
+    // fecha junto só se chegou a rodar e ainda estava aberto
+    if(rr && !rr.finalizado && !cancelada)
       registrar({tipo:'lote_finalizado', linha:l.linha, lote:l.id, origem:'supervisao', posto:pid});
     nuvemSalvar('lotes', l.id, l);
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    flash(`Lote ${l.loteFab || l.numero} concluído · ${nf(feito)} ${un}`);
+    flash(cancelada ? `Ordem ${l.numero} retirada da tela` : `Lote ${l.loteFab || l.numero} concluído · ${nf(feito)} ${un}`);
     pintaTudo();
   });
 
@@ -4042,6 +4104,12 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
 
 
 
