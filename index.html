@@ -293,6 +293,26 @@
   .sub-produto td:first-child{color:var(--tinta);font-weight:500}
   .ap-inicio{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:7px 13px;
     background:#fafbfc;border-bottom:1px solid var(--linha);font-size:12px}
+  .dias-semana{display:flex;gap:5px;flex-wrap:wrap}
+  .dias-semana label{cursor:pointer;user-select:none}
+  .dias-semana input{position:absolute;opacity:0;pointer-events:none}
+  .dias-semana span{display:inline-block;padding:6px 11px;border:1px solid var(--linha);
+    border-radius:18px;font-size:12px;color:var(--apagado);background:#fff;transition:.12s}
+  .dias-semana input:checked + span{background:#011689;border-color:#011689;color:#fff;font-weight:500}
+  .dias-semana label:hover span{border-color:#011689}
+  .setas-fila{display:inline-flex;flex-direction:column;gap:1px;margin-right:6px;vertical-align:middle}
+  .setas-fila button{border:1px solid var(--linha);background:#fff;color:var(--apagado);
+    cursor:pointer;font-size:8px;line-height:1;padding:2px 5px;border-radius:4px}
+  .setas-fila button:hover:not(:disabled){background:#011689;border-color:#011689;color:#fff}
+  .setas-fila button:disabled{opacity:.28;cursor:default}
+  .barra-turno{display:flex;gap:7px;align-items:center;margin-bottom:14px;padding:9px 13px;
+    background:#fff;border:1px solid var(--linha);border-radius:9px}
+  .bt-turno{border:1px solid var(--linha);background:#fff;border-radius:20px;padding:5px 13px;
+    font-size:12px;color:var(--apagado);cursor:pointer;font-weight:500}
+  .bt-turno:hover{background:#f4f7fb}
+  .bt-turno.ativo{background:#011689;border-color:#011689;color:#fff}
+  .bt-turno.ativo .rot{color:#c7d2f0}
+  .tag-noite{font-size:9px;background:#2c3550;color:#dbe4f5}
   .faixa-concluidas{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;
     padding:10px 13px;background:#f3f7f4;border:1px solid #d9e6dd;border-radius:9px}
   .chip-conc{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #cfe0d5;
@@ -632,13 +652,25 @@
           <input type="number" id="t-int" value="60" min="0">
         </div>
       </div>
+      <div class="campo" style="margin-bottom:14px">
+        <label>Dias da semana</label>
+        <div class="dias-semana" id="t-dias">
+          <label><input type="checkbox" value="1" checked><span>Seg</span></label>
+          <label><input type="checkbox" value="2" checked><span>Ter</span></label>
+          <label><input type="checkbox" value="3" checked><span>Qua</span></label>
+          <label><input type="checkbox" value="4" checked><span>Qui</span></label>
+          <label><input type="checkbox" value="5" checked><span>Sex</span></label>
+          <label><input type="checkbox" value="6"><span>Sáb</span></label>
+          <label><input type="checkbox" value="0"><span>Dom</span></label>
+        </div>
+      </div>
       <button class="btn-primario" id="btn-turno">Registrar turno</button>
     </div>
 
     <div class="bloco">
-      <div class="bloco-topo"><span class="titulo-secao">Turnos de hoje</span></div>
+      <div class="bloco-topo"><span class="titulo-secao">Turnos cadastrados</span></div>
       <table><thead><tr>
-        <th>Linha</th><th>Turno</th><th>Janela</th>
+        <th>Linha</th><th>Turno</th><th>Janela</th><th>Dias</th>
         <th class="num">Intervalo</th><th class="num">Tempo disponível</th><th class="num">Pessoas</th><th></th>
       </tr></thead><tbody id="tb-turnos"></tbody></table>
     </div>
@@ -799,6 +831,17 @@
 </div>
 
 <script>
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1126,12 +1169,39 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 18:33';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 19:36';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
 const DIA_ONTEM = _dm(new Date(AGORA.getTime() - 86400000));
 const min = m => m * 60000;
+
+const DIAS_SEMANA = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+function lerDiasForm(){
+  return [...document.querySelectorAll('#t-dias input:checked')].map(i => +i.value);
+}
+function marcarDiasForm(dias){
+  const lista = dias && dias.length ? dias : [1,2,3,4,5];
+  document.querySelectorAll('#t-dias input').forEach(i => { i.checked = lista.includes(+i.value); });
+}
+/* Resume os dias de forma legível: "Seg a Sex", "Seg, Qua, Sex", "todos os dias" */
+function resumoDias(dias){
+  if(!dias || !dias.length) return 'todos os dias';   // turno antigo, sem restrição
+  const d = [...new Set(dias)].sort((a,b) => a-b);
+  if(d.length === 7) return 'todos os dias';
+  if(d.join() === '1,2,3,4,5') return 'Seg a Sex';
+  if(d.join() === '1,2,3,4,5,6') return 'Seg a Sáb';
+  // sequência contínua vira intervalo
+  const semDom = d.filter(x => x !== 0);
+  const continuo = semDom.length > 2 && semDom.every((x,i) => i === 0 || x === semDom[i-1] + 1);
+  if(continuo && d.length === semDom.length)
+    return DIAS_SEMANA[semDom[0]] + ' a ' + DIAS_SEMANA[semDom[semDom.length-1]];
+  return d.map(x => DIAS_SEMANA[x]).join(', ');
+}
+function turnoValeHoje(t){
+  if(!t.dias || !t.dias.length) return true;   // turno antigo, sem dias: vale sempre
+  return t.dias.includes(AGORA.getDay());
+}
 
 let TURNOS = [];
 let TURNO_EDITANDO = null;
@@ -1466,6 +1536,7 @@ async function ligarNuvem(){
         if(local.loteFab && !l.loteFab) juntos.loteFab = local.loteFab;
         if(local.status === 'cancelado') juntos.status = 'cancelado';
         if(local.loteConcluido) juntos.loteConcluido = Object.assign({}, l.loteConcluido || {}, local.loteConcluido);
+        if(local.ordemFila != null && l.ordemFila == null) juntos.ordemFila = local.ordemFila;
         LOTES[i] = juntos; mudou = true;
       });
       if(mudou) pintaTudo();
@@ -1513,6 +1584,8 @@ function registrar(ev){
   nuvemSalvar('eventos', ev.id, ev);
 }
 
+let FILTRO_TURNO = 'TODOS';   // 'TODOS' | 'DIA' | 'NOITE'
+const turnoDoLote = l => (l.turno === 'NOITE' ? 'NOITE' : 'DIA');
 const MOSTRAR_ANTIGAS = {};   // por posto: exibir também as ordens finalizadas de outros dias
 const LINHA_CONCLUIDA = {};   // linhaId -> {data:'21/07', ts} · sai do apontamento até o dia seguinte
 function linhaConcluidaHoje(id){
@@ -2052,6 +2125,12 @@ function montaFormTurno(){
 // ---- JORNADA editável ----
 function carregaJornadaForm(){
   const g = id => document.getElementById(id);
+  // O relógio repinta a tela a cada segundo. Sem esta trava, o campo que ela
+  // está preenchendo voltava sozinho ao valor salvo — parecia que não deixava editar.
+  const foco = document.activeElement;
+  const editando = foco && ['j-ini','j-fim','j-alm-ini','j-alm-fim',
+                            't-ini','t-fim','t-nome','t-int','t-pes','t-linha'].includes(foco.id);
+  if(editando) return;
   if(g('j-ini')) g('j-ini').value = JORNADA.inicioPadrao;
   if(g('j-fim')) g('j-fim').value = JORNADA.fim;
   if(g('j-alm-ini')) g('j-alm-ini').value = JORNADA.almocoIni;
@@ -2067,6 +2146,10 @@ document.getElementById('btn-jornada') && (document.getElementById('btn-jornada'
   const min = t => { const [h,m]=t.split(':').map(Number); return h*60+m; };
   const almoco = (min(JORNADA.almocoFim)-min(JORNADA.almocoIni))/60;
   JORNADA.horasTrabalho = (min(JORNADA.fim)-min(JORNADA.inicioPadrao))/60 - almoco;
+  if(JORNADA.horasTrabalho <= 0){
+    flash('Confira os horários: a jornada ficou sem tempo de trabalho');
+    return;
+  }
   salvarConfig();
   flash(`Jornada salva · ${JORNADA.horasTrabalho.toFixed(1)}h de trabalho`);
   pintaTudo();
@@ -2219,13 +2302,16 @@ document.getElementById('btn-turno').onclick = () => {
     nome:document.getElementById('t-nome').value,
     inicio:ini, fim,
     intervalo:+document.getElementById('t-int').value,
-    pessoas:+document.getElementById('t-pes').value
+    pessoas:+document.getElementById('t-pes').value,
+    dias: lerDiasForm()
   };
+  if(!dados.dias.length){ flash('Marque pelo menos um dia da semana'); return; }
   if(TURNO_EDITANDO){
     const t = TURNOS.find(x => x.id === TURNO_EDITANDO);
     if(t) Object.assign(t, dados);
     TURNO_EDITANDO = null;
     document.getElementById('btn-turno').textContent = 'Registrar turno';
+  marcarDiasForm([1,2,3,4,5]);
     salvarTurnos();
     flash('Turno atualizado');
   } else {
@@ -2242,8 +2328,10 @@ function pintaTurnos(){
     const viraDia = new Date(t.fim).getDate() !== new Date(t.inicio).getDate();
     return `<tr>
       <td><b>${nomeLinha(t.linha)}</b></td>
-      <td>${t.nome}</td>
+      <td>${t.nome}
+        ${turnoValeHoje(t) ? '<span class="tag ok" style="font-size:9px">hoje</span>' : ''}</td>
       <td class="mono">${hora(t.inicio)} — ${hora(t.fim)} ${viraDia ? '<span class="tag azul">vira o dia</span>' : ''}</td>
+      <td class="rot">${resumoDias(t.dias)}</td>
       <td class="num">${t.intervalo} min</td>
       <td class="num"><b>${hhmm(disp)}</b></td>
       <td class="num">${t.pessoas}</td>
@@ -2265,6 +2353,7 @@ function pintaTurnos(){
     g('t-fim').value = hora(t.fim);
     g('t-pes').value = t.pessoas;
     g('t-int').value = t.intervalo;
+    marcarDiasForm(t.dias);
     TURNO_EDITANDO = t.id;
     document.getElementById('btn-turno').textContent = 'Salvar alterações';
     if(g('t-nome').scrollIntoView) g('t-nome').scrollIntoView({behavior:'smooth', block:'center'});
@@ -2325,6 +2414,9 @@ const AREAS = [
 /* Postos onde a Paula fecha o LOTE (tem a quantidade final).
    Envase do gel, embaladora da pastilha e embaladora/prensa da pedra. */
 const POSTOS_CONCLUI_LOTE = ['GEL-ENV', 'PAST-FP', 'PEDRA-PR'];
+/* Postos onde a fila pode ser reordenada à mão. O shrink recebe ordens das
+   três linhas, então quem está lá escolhe o que fazer primeiro. */
+const POSTOS_REORDENA = ['SHRINK'];
 const POSTOS_GRANEL = ['GEL-ENV','PAST-FP','PEDRA-PR','PAST-BLC'];   // pastilha (corte e embaladora) e corte de bloco também quebram em lotes
 const ehGranel = pid => POSTOS_GRANEL.includes(pid);
 
@@ -2651,15 +2743,36 @@ function lerProgramacao(){
   if(!txt.trim()){ flash('Cole a programação primeiro'); return; }
   const linhas = txt.split(/\r?\n/);
   let ignoradas = 0;
+  /* TURNO: a programação vem escrita com "Noite". Pode aparecer como coluna
+     na própria linha da ordem, ou como uma linha solta separando um bloco —
+     nesse caso vale para tudo que vem depois dela. */
+  let turnoCorrente = 'DIA';
 
   PROG = linhas.map(bruta => {
     let col = bruta.split('\t').map(c => c.replace(/^"+|"+$/g,'').trim());
+    const cheias = col.filter(Boolean);
+
+    // linha que só anuncia o turno
+    if(cheias.length && cheias.every(c => /^(turno\s+d[ao]\s+)?(noite|2º?\s*turno|segundo\s+turno)$/i.test(c))){
+      turnoCorrente = 'NOITE'; return null;
+    }
+    if(cheias.length && cheias.every(c => /^(turno\s+d[ao]\s+)?(dia|manh[ãa]|1º?\s*turno|primeiro\s+turno)$/i.test(c))){
+      turnoCorrente = 'DIA'; return null;
+    }
+
     const iOrd = col.findIndex(c => /^(MTS|OP)\s*\d/i.test(c));
     if(iOrd < 0){ ignoradas++; return null; }
+
+    // coluna de turno na própria linha (não confundir com o nome do produto)
+    const iTurno = col.findIndex((c,k) => k !== iOrd && /^(turno\s+d[ao]\s+)?(noite|dia|2º?\s*turno|1º?\s*turno)$/i.test(c));
+    const turnoDaLinha = iTurno >= 0
+      ? (/noite|2º?\s*turno/i.test(col[iTurno]) ? 'NOITE' : 'DIA')
+      : turnoCorrente;
 
     const ordem = col[iOrd];
     let desc = '';
     for(let k = iOrd + 1; k < col.length; k++){
+      if(k === iTurno) continue;
       if(col[k] && !/^(UNID|CX|UN)$/i.test(col[k])){ desc = col[k]; break; }
     }
     if(desc && !/(CR|FP|FR)\d{2}|TP|batelada/i.test(desc)){
@@ -2700,13 +2813,15 @@ function lerProgramacao(){
 
     const ehMixDesc = /\bmix\b/i.test(desc);
     return {ordem, desc, um, obs:'', linha, rota, qtdPlano, unidades, gargalo:g, tempo,
-            lote, defeito:'', postoId, ehBatelada,
+            lote, defeito:'', postoId, ehBatelada, turno: turnoDaLinha,
             bateladas: ehMixDesc ? 1 : Math.max(1, parseLotes(lote).length)};
   }).filter(Boolean);
 
   pintaProgramacao();
   document.getElementById('btn-subir').disabled = !PROG.length;
-  flash(PROG.length + ' ordens lidas · ' + ignoradas + ' linhas ignoradas');
+  const nNoite = PROG.filter(p => p.turno === 'NOITE').length;
+  flash(PROG.length + ' ordens lidas' + (nNoite ? ' (' + nNoite + ' do turno da noite)' : '') +
+        ' · ' + ignoradas + ' linhas ignoradas');
 }
 
 function pintaProgramacao(){
@@ -2884,7 +2999,7 @@ document.getElementById('btn-subir').onclick = () => {
         dataProg:  dataProgSel,
         rotaPostos: rotaBloco,
         linhaId:   p.linha,
-        turnoId:  'T-' + p.linha,
+        turnoId:   p.turno || 'DIA',
         postoId,
         loteFab:   '',            // a Paula preenche
         seq:       b + 1,
@@ -3233,7 +3348,18 @@ function pintaApontamento(){
        </div>`
     : '';
 
-  document.getElementById('apont').innerHTML = faixaConcluidas + LINHAS.map(li => {
+  const nNoite = LOTES.filter(l => turnoDoLote(l) === 'NOITE' && l.status !== 'fim').length;
+  const nDia   = LOTES.filter(l => turnoDoLote(l) === 'DIA'   && l.status !== 'fim').length;
+  const barraTurno = nNoite
+    ? `<div class="barra-turno">
+         <span class="rot">Turno:</span>
+         ${[['TODOS','Todos',nDia+nNoite],['DIA','Dia',nDia],['NOITE','Noite',nNoite]].map(([id,nome,qt]) =>
+           `<button class="bt-turno${FILTRO_TURNO === id ? ' ativo' : ''}" data-turno="${id}">
+              ${nome} <span class="rot">${qt}</span></button>`).join('')}
+       </div>`
+    : '';
+
+  document.getElementById('apont').innerHTML = barraTurno + faixaConcluidas + LINHAS.map(li => {
     if(linhaConcluidaHoje(li.id)) return '';   // concluída: fora da tela de apontamento
     const qs = QUADROS.filter(q => q.linha === li.id);
     if(!qs.length) return '';
@@ -3258,6 +3384,7 @@ function pintaApontamento(){
         // TODAS as ordens deste posto ainda abertas — inclusive as de ontem
         const ordens = LOTES.filter(l => {
             if(l.status === 'fim') return false;
+            if(FILTRO_TURNO !== 'TODOS' && turnoDoLote(l) !== FILTRO_TURNO) return false;
             // lote normal: posto fixo
             if(!l.rotaPostos) return l.posto === q.id;
             const idx = l.rotaPostos.indexOf(q.id);
@@ -3268,7 +3395,10 @@ function pintaApontamento(){
             // demais postos: só a partir da etapa liberada
             return idx <= l.etapaLiberada;
           })
-          .sort((a,b) => (a.ordemProg || 0) - (b.ordemProg || 0))   // na ordem em que foi colada
+          // ordemFila: sequência escolhida à mão (setas). Sem ela, vale a
+          // ordem em que a programação foi colada.
+          .sort((a,b) => (a.ordemFila != null ? a.ordemFila : (a.ordemProg || 0)) -
+                         (b.ordemFila != null ? b.ordemFila : (b.ordemProg || 0)))
           .map(l => ({l, r: realizado(l, q.id)}))
           // finalizadas continuam acessíveis para lançar/corrigir a quantidade
           // depois — inclusive dias depois. As antigas ficam recolhidas.
@@ -3386,9 +3516,19 @@ function pintaApontamento(){
             const algoRodando = ordens.some(x => x.r && !x.r.finalizado);
             const proxima = !r && !algoRodando;
 
+            const podeReordenar = POSTOS_REORDENA.includes(q.id) && ordens.length > 1;
+            const iFila = ordens.findIndex(x => x.l.id === l.id);
+
             return `<tr class="${r ? 'rodando' : ''}">
-              <td class="mono"><b>${l.numero}</b>
+              <td class="mono">
+                ${podeReordenar ? `<span class="setas-fila">
+                  <button data-sobe="${l.id}" data-posto-fila="${q.id}" title="fazer antes"
+                          ${iFila === 0 ? 'disabled' : ''}>▲</button>
+                  <button data-desce="${l.id}" data-posto-fila="${q.id}" title="fazer depois"
+                          ${iFila === ordens.length - 1 ? 'disabled' : ''}>▼</button>
+                </span>` : ''}<b>${l.numero}</b>
                 ${l.seqTot > 1 ? `<span class="tag" style="font-size:9px">${l.seq}/${l.seqTot}</span>` : ''}
+                ${turnoDoLote(l) === 'NOITE' ? `<span class="tag tag-noite">noite</span>` : ''}
                 ${aguardaAnterior ? `<span class="tag" style="font-size:9px;background:#eef1f5;color:#6b7684">aguarda etapa anterior</span>` : ''}
                 ${ontem ? `<span class="tag med" style="font-size:9px">${l.dataProg}</span>` : ''}
                 ${r ? '<span class="tag azul" style="font-size:9px">rodando</span>' : ''}
@@ -3544,6 +3684,48 @@ function pintaApontamento(){
     salvarConfig();
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash(`${nomeLinha(linhaId)} reaberta`);
+    pintaTudo();
+  });
+
+  /* REORDENAR A FILA — troca de lugar com a ordem vizinha */
+  function moverNaFila(loteId, postoId, passo){
+    const q = quadro(postoId);
+    if(!q) return;
+    // a fila visível deste posto, na ordem atual
+    const fila = LOTES.filter(l => {
+      if(l.status === 'fim') return false;
+      if(FILTRO_TURNO !== 'TODOS' && turnoDoLote(l) !== FILTRO_TURNO) return false;
+      if(l.loteConcluido && l.loteConcluido[postoId]) return false;
+      if(!l.rotaPostos) return l.posto === postoId;
+      const idx = l.rotaPostos.indexOf(postoId);
+      if(idx < 0) return false;
+      return postoId === 'SHRINK' ? true : idx <= l.etapaLiberada;
+    }).sort((a,b) => (a.ordemFila != null ? a.ordemFila : (a.ordemProg || 0)) -
+                     (b.ordemFila != null ? b.ordemFila : (b.ordemProg || 0)));
+
+    const i = fila.findIndex(l => l.id === loteId);
+    const j = i + passo;
+    if(i < 0 || j < 0 || j >= fila.length) return;
+
+    // normaliza a fila inteira e troca os dois
+    fila.forEach((l, k) => { l.ordemFila = k; });
+    fila[i].ordemFila = j;
+    fila[j].ordemFila = i;
+    [fila[i], fila[j]].forEach(l => nuvemSalvar('lotes', l.id, l));
+
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`${fila[i].loteFab || 'Ordem ' + fila[i].numero} ${passo < 0 ? 'subiu' : 'desceu'} na fila`);
+    pintaTudo();
+  }
+  document.querySelectorAll('#apont [data-sobe]').forEach(b =>
+    b.onclick = () => moverNaFila(b.dataset.sobe, b.dataset.postoFila, -1));
+  document.querySelectorAll('#apont [data-desce]').forEach(b =>
+    b.onclick = () => moverNaFila(b.dataset.desce, b.dataset.postoFila, +1));
+
+  /* filtro de turno */
+  document.querySelectorAll('#apont [data-turno]').forEach(b => b.onclick = () => {
+    FILTRO_TURNO = b.dataset.turno;
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     pintaTudo();
   });
 
@@ -4200,6 +4382,17 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
+
+
+
 
 
 
