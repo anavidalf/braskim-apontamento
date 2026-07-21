@@ -885,6 +885,11 @@
 
 
 
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1050,7 +1055,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '20/07 20:52';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 11:14';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1401,6 +1406,11 @@ function paradas(){                       // pareia parada_iniciada -> parada_fi
   return out;
 }
 
+function mesmoDia(a, b){
+  if(!a || !b) return false;
+  const d1 = new Date(a), d2 = new Date(b);
+  return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
+}
 function realizado(lote, postoCtx){                 // === vw_lote_realizado
   // para lotes em cascata (bloco), filtra eventos da etapa (posto) atual
   const evs = ativos().filter(e => e.lote === lote.id &&
@@ -2154,7 +2164,16 @@ function postoDaOrdem(rota, linha, um){
       if(rota.temShrink)    return 'PAST-SHR';   // etapa de shrink
       return 'PAST-CX';                          // etapa de caixa
     }
-    if(rota.codPrim || ehCaixa)       return 'PAST-FP';
+    // PASTILHA — mesma lógica por etapa:
+    //   UNIDADE sem código   -> corte (granel)
+    //   UNIDADE com FP01     -> embaladora
+    //   CX + SH              -> shrink
+    //   CX sem SH            -> caixa
+    if(ehCaixa){
+      if(rota.temShrink)  return 'PAST-SHR';
+      return 'PAST-CX';
+    }
+    if(rota.codPrim)      return 'PAST-FP';
     return 'PAST-COR';
   }
   if(linha === 'PEDRA'){
@@ -2613,6 +2632,9 @@ document.getElementById('btn-subir').onclick = () => {
       // cascata a partir da etapa que ESTA ordem representa
       if(postoId === 'PAST-BLC')      rotaBloco = ['PAST-BLC','PAST-BLI'];   // corte -> blister
       else                             rotaBloco = null;   // shrink e caixa: etapa única (o shrink já sai encaixotado)
+    } else if(p.linha === 'PAST'){
+      // pastilha comum: cada ordem é uma etapa própria (corte, embaladora, shrink, caixa)
+      rotaBloco = null;
     } else if(p.linha === 'PEDRA'){
       // PEDRA — cascata conforme o caminho de embalagem.
       // Regra: cartela (CT) e encartuchadeira (CR) nunca coexistem.
@@ -2914,7 +2936,9 @@ function pintaApontamento(){
           })
           .sort((a,b) => (a.ordemProg || 0) - (b.ordemProg || 0))   // na ordem em que foi colada
           .map(l => ({l, r: realizado(l, q.id)}))
-          .filter(x => !x.r || !x.r.finalizado);
+          // finalizadas HOJE continuam na tela: ela pode lançar a quantidade
+          // depois de encerrar o envase. Some no dia seguinte.
+          .filter(x => !x.r || !x.r.finalizado || mesmoDia(x.r.fim, AGORA.getTime()));
 
         const rodando = ordens.find(x => x.r);
         const par = rodando ? paradas().find(p => p.lote === rodando.l.id && p.aberta) : null;
@@ -3043,6 +3067,9 @@ function pintaApontamento(){
               <td class="num">
                 ${l.status === 'cancelado'
                   ? '<span class="tag ruim">cancelada</span>'
+                  : (r && r.finalizado)
+                    ? `<span class="tag ok">finalizada ${hora(r.fim)}</span>
+                       <span class="rot" style="display:block;margin-top:3px;font-size:10px">ainda dá para lançar</span>`
                   : !r
                     ? (proxima
                         ? `<button class="bt iniciar" data-ini="${l.id}" data-posto-ctx="${q.id}">Iniciar</button>
@@ -3125,7 +3152,13 @@ function pintaApontamento(){
 
   /* ---- ações ---- */
   const ev = (sel, fn) => document.querySelectorAll('#apont ' + sel).forEach(b =>
-    b.onclick = () => { fn(b); pintaTudo(); });
+    b.onclick = () => {
+      fn(b);
+      // tira o foco ANTES de repintar: pintaApontamento não redesenha enquanto
+      // um campo está em foco, e a tela ficaria congelada no estado anterior.
+      if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+      pintaTudo();
+    });
 
   ev('[data-ini]', b => {
     const l = LOTES.find(x => x.id === b.dataset.ini);
@@ -3669,6 +3702,11 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
 
 
 
