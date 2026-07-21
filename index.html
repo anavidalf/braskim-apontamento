@@ -943,6 +943,11 @@
 
 
 
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -999,15 +1004,11 @@ const LOTACAO = {
   'PAST-FP':  {pessoas:4, fixo:true},
   'PAST-BLC': {pessoas:1, fixo:true},   // corte de bloco
   'PAST-BLI': {pessoas:1, fixo:true},   // blister
-  'GEL-SHR':  {pessoas:1, fixo:true},   // shrink gel
-  'PAST-SHR': {pessoas:1, fixo:true},   // shrink pastilha
-  'GEL-CX':   {pessoas:1, fixo:true},   // caixa gel
   'PAST-CX':  {pessoas:1, fixo:true},   // caixa pastilha
   'PEDRA-PR':  {pessoas:2, fixo:true},   // prensa + embaladora = a MESMA dupla
   'PEDRA-CR':  {pessoas:2, fixo:true},   // encartuchadeira
-  'PEDRA-SHR': {pessoas:1, fixo:true},   // shrink
+  'SHRINK':   {pessoas:1, fixo:true},   // shrink — atende as três linhas
   'PEDRA-CX':  {pessoas:2, fixo:true},   // cartela (outra equipe)
-  'PEDRA-CXX': {pessoas:2, fixo:true},
   'LIQ':      {pessoas:2, fixo:false}   // limpador/difusor 2 · saponáceo 3
 };
 const SHRINK_PESSOAS = 1;   // posto de shrink, quando existir separado
@@ -1033,10 +1034,13 @@ function velDoProduto(desc){
 }
 
 const LINHAS = [
-  {id:'GEL',   nome:'Gel Sanitário'},
-  {id:'PAST',  nome:'Pastilha Sanitária'},
-  {id:'PEDRA', nome:'Pedra Sanitária'},
-  {id:'LIQ',   nome:'Líquidos'}
+  {id:'GEL',    nome:'Gel Sanitário'},
+  {id:'PAST',   nome:'Pastilha Sanitária'},
+  {id:'PEDRA',  nome:'Pedra Sanitária'},
+  {id:'LIQ',    nome:'Líquidos'},
+  // O shrink atende as três linhas. Como é sempre etapa em cascata, não tem
+  // hora de início própria: começa quando a etapa anterior libera.
+  {id:'SHRINK', nome:'Shrink', semHora:true}
 ];
 
 const EMBALAGENS = [
@@ -1118,7 +1122,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 14:55';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 16:26';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1310,6 +1314,41 @@ function salvarTurnos(){
 }
 
 /* carrega tudo e passa a ouvir mudanças em tempo real */
+/* Os postos de shrink por linha viraram um só ('SHRINK'), e os postos de
+   caixa do gel e da pedra deixaram de existir. Ordens já gravadas apontam
+   para os antigos — sem isso elas sumiriam da tela. */
+const POSTO_RENOMEADO = {
+  'GEL-SHR':'SHRINK', 'PAST-SHR':'SHRINK', 'PEDRA-SHR':'SHRINK',
+  'GEL-CX':'SHRINK',  'PEDRA-CXX':'PEDRA-CX'
+};
+function migrarPostos(){
+  let n = 0;
+  LOTES.forEach(l => {
+    let mudou = false;
+    if(POSTO_RENOMEADO[l.posto]){ l.posto = POSTO_RENOMEADO[l.posto]; mudou = true; }
+    if(l.rotaPostos){
+      const nova = l.rotaPostos.map(p => POSTO_RENOMEADO[p] || p)
+                               .filter((p,i,a) => a.indexOf(p) === i);   // sem repetido
+      if(nova.join() !== l.rotaPostos.join()){
+        if(l.etapaLiberada != null) l.etapaLiberada = Math.min(l.etapaLiberada, nova.length - 1);
+        l.rotaPostos = nova; mudou = true;
+      }
+    }
+    if(mudou){ nuvemSalvar('lotes', l.id, l); n++; }
+  });
+  EVENTOS.forEach(e => {
+    if(e.posto && POSTO_RENOMEADO[e.posto]){ e.posto = POSTO_RENOMEADO[e.posto]; nuvemSalvar('eventos', e.id, e); }
+  });
+  Object.keys(POSTO_RENOMEADO).forEach(velho => {
+    if(POSTO_INICIADO[velho]){
+      const novo = POSTO_RENOMEADO[velho];
+      if(!POSTO_INICIADO[novo]) POSTO_INICIADO[novo] = POSTO_INICIADO[velho];
+      delete POSTO_INICIADO[velho];
+    }
+  });
+  return n;
+}
+
 function repararIdsDuplicados(){
   const vistos = {}, dup = [];
   LOTES.forEach(l => {
@@ -1366,6 +1405,7 @@ async function ligarNuvem(){
     // o contador de eventos continua de onde parou
     seqEvento = EVENTOS.reduce((m,e) => Math.max(m, e.id || 0), 0);
     SEQ_PROG  = LOTES.reduce((m,l) => Math.max(m, l.ordemProg || 0), 0);
+    migrarPostos();
     const reparados = repararIdsDuplicados();
     if(reparados) flash(`${reparados} ordem(ns) com código repetido corrigida(s)`);
 
@@ -2211,19 +2251,15 @@ const QUADROS = [
   {id:'GEL-ENV',   linha:'GEL',   nome:'Envase',                curto:'Envase', meta:78.0},
   {id:'GEL-CR01',  linha:'GEL',   nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:63.0},
   {id:'GEL-CR04',  linha:'GEL',   nome:'CR04 · Cartucho manual',curto:'CR04',   meta:null, manual:true},
-  {id:'GEL-SHR',   linha:'GEL',   nome:'Shrink',                curto:'Shrink', meta:null},   // etapa de shrink · medir
-  {id:'GEL-CX',    linha:'GEL',   nome:'Caixa',                 curto:'Caixa',  meta:null},   // encaixotamento
   {id:'PAST-COR',  linha:'PAST',  nome:'Corte',                 curto:'Corte',  meta:68.0},
   {id:'PAST-FP',   linha:'PAST',  nome:'FP01 · Embaladora',     curto:'FP01',   meta:65.0},
   {id:'PAST-BLC',  linha:'PAST',  nome:'Corte de bloco',        curto:'Bloco',  meta:null, soLote:true},   // registra só início e fim do lote
   {id:'PAST-BLI',  linha:'PAST',  nome:'Blister',               curto:'Blister',meta:18.0},   // bloco sanitário · tempo de máquina
-  {id:'PAST-SHR',  linha:'PAST',  nome:'Shrink',                curto:'Shrink', meta:null},   // etapa de shrink · medir
   {id:'PAST-CX',   linha:'PAST',  nome:'Caixa',                 curto:'Caixa',  meta:null},   // encaixotamento
   {id:'PEDRA-PR',  linha:'PEDRA', nome:'Prensa / Embaladora',   curto:'Prensa', meta:50.0},
   {id:'PEDRA-CR',  linha:'PEDRA', nome:'CR01 · Encartuchadeira',curto:'CR01',   meta:52.0},
-  {id:'PEDRA-SHR', linha:'PEDRA', nome:'Shrink',                curto:'Shrink', meta:null},
+  {id:'SHRINK',    linha:'SHRINK',nome:'Shrink',                curto:'Shrink', meta:null, semHora:true},   // atende as três linhas
   {id:'PEDRA-CX',  linha:'PEDRA', nome:'Cartela / Mix (manual)',curto:'Cartela',meta:null, manualFixo:true},
-  {id:'PEDRA-CXX', linha:'PEDRA', nome:'Caixa',                 curto:'Caixa',  meta:null},   // velocidade medida por embalagem, ver VEL_EMBALAGEM
   {id:'LIQ',       linha:'LIQ',   nome:'Envase de frasco',      curto:'Frasco', meta:7.0}   // limpador 120mL: 7 un/min medido
 ];
 
@@ -2237,9 +2273,10 @@ const quadro = id => QUADROS.find(q => q.id === id);
    Por isso turnos e paradas do Gel se cadastram separados. */
 const AREAS = [
   {id:'GEL-ENVASE', linha:'GEL',   nome:'Gel · Envase',     postos:['GEL-ENV']},
-  {id:'GEL-EMB',    linha:'GEL',   nome:'Gel · Embalagem',  postos:['GEL-CR01','GEL-CR04','GEL-SHR','GEL-CX']},
-  {id:'PAST',       linha:'PAST',  nome:'Pastilha',         postos:['PAST-COR','PAST-FP','PAST-BLC','PAST-BLI','PAST-SHR','PAST-CX']},
-  {id:'PEDRA',      linha:'PEDRA', nome:'Pedra',            postos:['PEDRA-PR','PEDRA-CR','PEDRA-SHR','PEDRA-CX','PEDRA-CXX']},
+  {id:'GEL-EMB',    linha:'GEL',   nome:'Gel · Embalagem',  postos:['GEL-CR01','GEL-CR04']},
+  {id:'PAST',       linha:'PAST',  nome:'Pastilha',         postos:['PAST-COR','PAST-FP','PAST-BLC','PAST-BLI','PAST-CX']},
+  {id:'PEDRA',      linha:'PEDRA', nome:'Pedra',            postos:['PEDRA-PR','PEDRA-CR','PEDRA-CX']},
+  {id:'SHRINK',     linha:'SHRINK',nome:'Shrink',           postos:['SHRINK']},
   {id:'LIQ',        linha:'LIQ',   nome:'Líquidos',         postos:['LIQ']}
 ];
 
@@ -2254,8 +2291,8 @@ const ehGranel = pid => POSTOS_GRANEL.includes(pid);
 /* tamanho típico da batelada, por linha (cadastro) */
 const TAM_BATELADA = {GEL:8200, PAST:7992, PEDRA:5688, LIQ:8000};   // pastilha 7992 · pedra 5688 (meio lote 2844)
 const TAM_LOTE_BLOCO = 1526;   // cada lote de bloco sanitário rende 1526 unidades
-const POSTO_SHRINK = {GEL:'GEL-SHR', PAST:'PAST-SHR', PEDRA:'PEDRA-SHR'};   // posto de shrink por linha (cascata)
-const POSTO_CAIXA  = {GEL:'GEL-CX',  PAST:'PAST-CX', PEDRA:'PEDRA-CXX'};    // posto de encaixotamento por linha
+const POSTO_SHRINK = {GEL:'SHRINK', PAST:'SHRINK', PEDRA:'SHRINK'};   // shrink é único, atende as três linhas
+const POSTO_CAIXA  = {PAST:'PAST-CX'};   // só a pastilha tem posto de caixa próprio
 
 /* tipos de setup — o TEMPO é medido, o TIPO é apontado */
 const TIPOS_SETUP = [
@@ -2287,7 +2324,7 @@ function postoDaOrdem(rota, linha, um){
     const temCX = !!(rota.codEmb && /^CX/i.test(rota.codEmb)) || ehCaixa;
     if(rota.ehBloco){
       if(!temCX)            return 'PAST-BLC';   // granel: corte -> blister
-      if(rota.temShrink)    return 'PAST-SHR';   // etapa de shrink
+      if(rota.temShrink)    return 'SHRINK';   // etapa de shrink (linha única)
       return 'PAST-CX';                          // etapa de caixa
     }
     // PASTILHA — mesma lógica por etapa:
@@ -2296,7 +2333,7 @@ function postoDaOrdem(rota, linha, um){
     //   CX + SH              -> shrink
     //   CX sem SH            -> caixa
     if(temCX){
-      if(rota.temShrink)  return 'PAST-SHR';
+      if(rota.temShrink)  return 'SHRINK';
       return 'PAST-CX';
     }
     if(rota.codPrim)      return 'PAST-FP';
@@ -2775,17 +2812,17 @@ document.getElementById('btn-subir').onclick = () => {
       if(ehManual){
         // com caixa no nome (ex: CT12 CX144) segue para o encaixotamento;
         // sem caixa (ex: DP72) o display já é a embalagem final.
-        rotaBloco = /CX\d+/i.test(p.desc || '') ? ['PEDRA-CX', 'PEDRA-CXX'] : null;
+        rotaBloco = null;   // cartela/mix conclui na própria etapa
       } else if(temCR){
         // ordem de encartuchadeira: Encart -> Shrink (o shrink conclui, já sai encaixotado)
         // sem shrink, o encaixotamento é etapa própria
-        rotaBloco = r.temShrink ? ['PEDRA-CR','PEDRA-SHR'] : ['PEDRA-CR','PEDRA-CXX'];
+        rotaBloco = r.temShrink ? ['PEDRA-CR','SHRINK'] : null;   // sem shrink, a encartuchadeira conclui
       } else if(temCT){
         // ordem de cartela: Cartela -> Caixa
-        rotaBloco = ['PEDRA-CX', 'PEDRA-CXX'];
+        rotaBloco = null;
       } else if(ehCaixaOrdem(p)){
         // Naftalina direto pra caixa: Prensa/Emb -> Caixa
-        rotaBloco = ['PEDRA-PR', 'PEDRA-CXX'];
+        rotaBloco = null;
       }
       // pedra FP01 pura (granel) fica só na Prensa/Emb, sem cascata
     } else if(p.rota.temShrink && POSTO_SHRINK[p.linha]){
@@ -3074,8 +3111,8 @@ function reprocessarOrdens(){
     if(linha === 'PEDRA'){
       const manual = rota.ehMix || (rota.codEmb && /^(CT|DP)/i.test(rota.codEmb)) ||
                      (rota.codEmb && VEL_EMBALAGEM[rota.codEmb]);
-      if(manual)                    rotaPostos = /CX\d+/i.test(prod.nome) ? ['PEDRA-CX','PEDRA-CXX'] : null;
-      else if(novoPosto==='PEDRA-CR') rotaPostos = rota.temShrink ? ['PEDRA-CR','PEDRA-SHR'] : ['PEDRA-CR','PEDRA-CXX'];
+      if(manual)                    rotaPostos = null;   // cartela/mix conclui na própria etapa
+      else if(novoPosto==='PEDRA-CR') rotaPostos = rota.temShrink ? ['PEDRA-CR','SHRINK'] : null;
     } else if(novoPosto === 'PAST-BLC'){
       rotaPostos = ['PAST-BLC','PAST-BLI'];
     } else if(rota.temShrink && POSTO_SHRINK[linha] && !/SHR/.test(novoPosto)){
@@ -3163,7 +3200,7 @@ function pintaApontamento(){
     if(!qs.length) return '';
 
     // cada POSTO tem sua hora de início: o envase entra 05:40, os demais depois.
-    const algumIniciado = qs.some(q => inicioDoPosto(q.id));
+    const algumIniciado = li.semHora || qs.some(q => inicioDoPosto(q.id));
     const iniciada = algumIniciado;
     return `
     <section class="grupo ${algumIniciado ? '' : 'linha-espera'}">
@@ -3171,7 +3208,9 @@ function pintaApontamento(){
         <h2>${li.nome}</h2>
         <div class="risco"></div>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-          ${qs.every(q => inicioDoPosto(q.id)) ? `<span class="tag ok">todos os postos iniciados</span>` : ''}
+          ${li.semHora
+            ? `<span class="rot">etapa em cascata — começa quando a etapa anterior libera</span>`
+            : (qs.every(q => inicioDoPosto(q.id)) ? `<span class="tag ok">todos os postos iniciados</span>` : '')}
           ${algumIniciado ? `<button class="bt" data-concluirlinha="${li.id}" style="font-size:11px;padding:5px 9px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir linha</button>` : ''}
         </span>
       </div>
@@ -3182,9 +3221,13 @@ function pintaApontamento(){
             if(l.status === 'fim') return false;
             // lote normal: posto fixo
             if(!l.rotaPostos) return l.posto === q.id;
-            // lote de bloco: aparece nos postos da rota até a etapa liberada
             const idx = l.rotaPostos.indexOf(q.id);
-            return idx >= 0 && idx <= l.etapaLiberada;
+            if(idx < 0) return false;
+            // O SHRINK mostra tudo que vai chegar nele, mesmo antes da etapa
+            // anterior começar — o operador precisa ver a fila do dia.
+            if(q.id === 'SHRINK') return true;
+            // demais postos: só a partir da etapa liberada
+            return idx <= l.etapaLiberada;
           })
           .sort((a,b) => (a.ordemProg || 0) - (b.ordemProg || 0))   // na ordem em que foi colada
           .map(l => ({l, r: realizado(l, q.id)}))
@@ -3216,7 +3259,7 @@ function pintaApontamento(){
             <div class="rot" style="margin-left:auto">${ordens.length} ${ordens.length === 1 ? 'ordem aberta' : 'ordens abertas'}</div>
           </div>
 
-          <div class="ap-inicio">
+          ${q.semHora ? '' : `<div class="ap-inicio">
             ${inicioDoPosto(q.id)
               ? `<span class="tag ok">iniciado ${hora(inicioDoPosto(q.id))}</span>
                  <button class="bt" data-ajustarposto="${q.id}" style="font-size:10.5px;padding:4px 8px">ajustar hora</button>`
@@ -3224,7 +3267,7 @@ function pintaApontamento(){
                  <input type="time" id="ini-posto-${q.id}" value="${horaPadraoDoPosto(q)}"
                         style="border:1px solid var(--linha);border-radius:6px;padding:4px 7px;font-family:'DM Mono',monospace;font-size:12px">
                  <button class="bt iniciar" data-iniciarposto="${q.id}" style="font-size:11px;padding:5px 10px">▶ Iniciar posto</button>`}
-          </div>
+          </div>`}
 
           ${par ? `
           <div class="ap-parado">
@@ -3241,6 +3284,9 @@ function pintaApontamento(){
               .map(realizado).filter(x => x && x.finalizado)
               .sort((a,b) => b.fim - a.fim)[0];
             if(!ult) return '';
+            // Lote fechado em outro dia não gera setup: o intervalo é a virada
+            // do turno, não preparo de máquina. (Ex.: blister do bloco ontem.)
+            if(!mesmoDia(ult.fim, AGORA.getTime())) return '';
 
             const decor = (AGORA.getTime() - ult.fim) / 60000;
             const info  = SETUP_INFO[q.id] || {};
@@ -3291,6 +3337,9 @@ function pintaApontamento(){
             const dv    = devia !== null ? feito - devia : null;
             const un    = f > 1 ? 'cx' : 'un';
             const ontem = l.dataProg !== DIA_HOJE;
+            // no shrink, a ordem pode estar listada antes da etapa anterior começar
+            const aguardaAnterior = l.rotaPostos && q.id === 'SHRINK' &&
+                                    l.rotaPostos.indexOf(q.id) > (l.etapaLiberada || 0);
 
             // Pode iniciar qualquer ordem enquanto NADA estiver rodando no posto.
             // (Antes só a primeira da fila podia começar — uma ordem antiga
@@ -3301,6 +3350,7 @@ function pintaApontamento(){
             return `<tr class="${r ? 'rodando' : ''}">
               <td class="mono"><b>${l.numero}</b>
                 ${l.seqTot > 1 ? `<span class="tag" style="font-size:9px">${l.seq}/${l.seqTot}</span>` : ''}
+                ${aguardaAnterior ? `<span class="tag" style="font-size:9px;background:#eef1f5;color:#6b7684">aguarda etapa anterior</span>` : ''}
                 ${ontem ? `<span class="tag med" style="font-size:9px">${l.dataProg}</span>` : ''}
                 ${r ? '<span class="tag azul" style="font-size:9px">rodando</span>' : ''}
                 ${proxima ? '<span class="tag ok" style="font-size:9px">próxima</span>' : ''}
@@ -4104,6 +4154,11 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
 
 
 
