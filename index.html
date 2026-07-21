@@ -890,6 +890,10 @@
 
 
 
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1055,7 +1059,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 11:14';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 11:51';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1346,6 +1350,7 @@ function registrar(ev){
   nuvemSalvar('eventos', ev.id, ev);
 }
 
+const MOSTRAR_ANTIGAS = {};   // por posto: exibir também as ordens finalizadas de outros dias
 let SEQ_PROG = 0;   // ordem em que as ordens foram coladas — preserva a sequência da Priscila
 function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot, rotaPostos}){
   const p = PADROES[produtoId];
@@ -2125,11 +2130,11 @@ const AREAS = [
 
 /* Só o GRANEL trabalha em bateladas. A embalagem roda contínuo e consome
    as bateladas do pulmão — por isso ela registra o lote CONSUMIDO, não o próprio. */
-const POSTOS_GRANEL = ['GEL-ENV','PAST-COR','PEDRA-PR','PAST-BLC'];   // corte de bloco também é granel
+const POSTOS_GRANEL = ['GEL-ENV','PAST-COR','PAST-FP','PEDRA-PR','PAST-BLC'];   // pastilha (corte e embaladora) e corte de bloco também quebram em lotes
 const ehGranel = pid => POSTOS_GRANEL.includes(pid);
 
 /* tamanho típico da batelada, por linha (cadastro) */
-const TAM_BATELADA = {GEL:8200, PAST:8000, PEDRA:5688, LIQ:8000};   // pedra: lote cheio 5688 · meio lote 2844
+const TAM_BATELADA = {GEL:8200, PAST:7992, PEDRA:5688, LIQ:8000};   // pastilha 7992 · pedra 5688 (meio lote 2844)
 const TAM_LOTE_BLOCO = 1526;   // cada lote de bloco sanitário rende 1526 unidades
 const POSTO_SHRINK = {GEL:'GEL-SHR', PAST:'PAST-SHR', PEDRA:'PEDRA-SHR'};   // posto de shrink por linha (cascata)
 const POSTO_CAIXA  = {GEL:'GEL-CX',  PAST:'PAST-CX', PEDRA:'PEDRA-CXX'};    // posto de encaixotamento por linha
@@ -2159,8 +2164,11 @@ function postoDaOrdem(rota, linha, um){
     //   BL01 em UNIDADE      -> corte (e cascateia pro blister)
     //   BL01 + SH + CX       -> shrink
     //   BL01 + CX (sem SH)   -> caixa
+    // temCX = o NOME traz código de caixa (CX24, CX48...). É o que diz que
+    // esta ordem é de embalagem, mesmo que a U.M. venha como UNID.
+    const temCX = !!(rota.codEmb && /^CX/i.test(rota.codEmb)) || ehCaixa;
     if(rota.ehBloco){
-      if(!ehCaixa)          return 'PAST-BLC';   // granel: corte -> blister
+      if(!temCX)            return 'PAST-BLC';   // granel: corte -> blister
       if(rota.temShrink)    return 'PAST-SHR';   // etapa de shrink
       return 'PAST-CX';                          // etapa de caixa
     }
@@ -2169,7 +2177,7 @@ function postoDaOrdem(rota, linha, um){
     //   UNIDADE com FP01     -> embaladora
     //   CX + SH              -> shrink
     //   CX sem SH            -> caixa
-    if(ehCaixa){
+    if(temCX){
       if(rota.temShrink)  return 'PAST-SHR';
       return 'PAST-CX';
     }
@@ -2936,9 +2944,10 @@ function pintaApontamento(){
           })
           .sort((a,b) => (a.ordemProg || 0) - (b.ordemProg || 0))   // na ordem em que foi colada
           .map(l => ({l, r: realizado(l, q.id)}))
-          // finalizadas HOJE continuam na tela: ela pode lançar a quantidade
-          // depois de encerrar o envase. Some no dia seguinte.
-          .filter(x => !x.r || !x.r.finalizado || mesmoDia(x.r.fim, AGORA.getTime()));
+          // finalizadas continuam acessíveis para lançar/corrigir a quantidade
+          // depois — inclusive dias depois. As antigas ficam recolhidas.
+          .filter(x => !x.r || !x.r.finalizado ||
+                       mesmoDia(x.r.fim, AGORA.getTime()) || MOSTRAR_ANTIGAS[q.id]);
 
         const rodando = ordens.find(x => x.r);
         const par = rodando ? paradas().find(p => p.lote === rodando.l.id && p.aberta) : null;
@@ -3103,10 +3112,32 @@ function pintaApontamento(){
           }).join('')}
           </tbody></table>`
           : `<div class="ap-vazio">Nenhuma ordem aberta neste posto. A Priscila sobe a programação.</div>`}
+
+        ${(() => {
+          // ordens finalizadas em OUTROS dias — dá para reabrir e lançar/corrigir
+          const antigas = LOTES.filter(l => {
+            if(l.posto !== q.id && !(l.rotaPostos && l.rotaPostos.indexOf(q.id) >= 0)) return false;
+            const rr = realizado(l, q.id);
+            return rr && rr.finalizado && !mesmoDia(rr.fim, AGORA.getTime());
+          }).length;
+          if(!antigas) return '';
+          return `<div style="padding:8px 12px;border-top:1px solid var(--linha)">
+            <button class="bt" data-antigas="${q.id}" style="font-size:11px;padding:5px 10px">
+              ${MOSTRAR_ANTIGAS[q.id] ? '▲ ocultar' : '▼ mostrar'} ${antigas} ordem(ns) de dias anteriores
+            </button></div>`;
+        })()}
         </article>`;
       }).join('')}
     </section>`;
   }).join('');
+
+  /* abrir/fechar as ordens finalizadas de dias anteriores */
+  document.querySelectorAll('#apont [data-antigas]').forEach(b => b.onclick = () => {
+    const pid = b.dataset.antigas;
+    MOSTRAR_ANTIGAS[pid] = !MOSTRAR_ANTIGAS[pid];
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    pintaTudo();
+  });
 
   /* INICIAR LINHA com hora informada — vale para todas as linhas */
   document.querySelectorAll('#apont [data-iniciarhora]').forEach(b => b.onclick = () => {
@@ -3702,6 +3733,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
