@@ -291,6 +291,8 @@
   .mix-info{margin-top:6px;padding:8px 11px;background:#eef7f0;border:1px solid #a8d5b5;border-radius:7px;font-size:12px;color:#2c6b3f;line-height:1.5}
   .sub-produto td{background:#fafbfc;font-size:12px;color:var(--apagado);border-top:1px dashed var(--linha)}
   .sub-produto td:first-child{color:var(--tinta);font-weight:500}
+  .ap-inicio{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:7px 13px;
+    background:#fafbfc;border-bottom:1px solid var(--linha);font-size:12px}
   .faixa-concluidas{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;
     padding:10px 13px;background:#f3f7f4;border:1px solid #d9e6dd;border-radius:9px}
   .chip-conc{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #cfe0d5;
@@ -658,6 +660,22 @@
       </div>
     </div>
 
+    <div class="cx" style="margin-bottom:18px">
+      <div class="cx-cab">
+        <h3>Reprocessar ordens abertas</h3>
+        <span class="rot">quando uma regra de roteamento ou de tamanho de lote muda</span>
+      </div>
+      <div style="padding:13px">
+        <p class="rot" style="margin:0 0 10px 0;line-height:1.5">
+          O posto e a divisão em lotes são decididos quando a programação é subida e ficam
+          gravados na ordem. Se uma regra mudou depois, as ordens já criadas continuam com a
+          regra antiga. Este botão reaplica as regras atuais — <b>apenas em ordens que ninguém
+          iniciou</b>, para não perder apontamento já feito.
+        </p>
+        <button class="bt iniciar" id="btn-reprocessar">Reprocessar ordens abertas</button>
+      </div>
+    </div>
+
     <div id="carimbo-versao" style="margin-bottom:18px;padding:9px 13px;background:#f1f5f9;border:1px solid var(--linha);border-radius:8px;font-size:12px;color:var(--apagado);font-family:'DM Mono',monospace"></div>
 
     <h2 class="titulo-secao" style="margin:30px 0 10px">Jornada padrão</h2>
@@ -910,6 +928,15 @@
 
 
 
+
+
+
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -931,7 +958,14 @@ const naoParaAlmoco = pid => NAO_PARA_ALMOCO.includes(pid);
 
 /* Linha só começa a contar quando a supervisora clica INICIAR.
    Reuniões e treinamentos atrasam o começo; o botão marca o início real. */
-const LINHA_INICIADA = {};    // {linhaId: timestamp do início real}
+const LINHA_INICIADA = {};    // {linhaId: timestamp do início real} — atalho da linha
+const POSTO_INICIADO = {};    // {postoId: timestamp} — cada posto começa na SUA hora
+/* hora padrão de início por posto: o envase do gel entra antes dos demais */
+const HORA_PADRAO_POSTO = {'GEL-ENV':'05:40'};
+function horaPadraoDoPosto(q){
+  return HORA_PADRAO_POSTO[q.id] || JORNADA.inicioPadrao;
+}
+function inicioDoPosto(postoId){ return POSTO_INICIADO[postoId]; }
 
 /* Velocidade MEDIDA por código de embalagem, para processos manuais
    onde o tempo depende do formato, não da máquina.
@@ -1075,7 +1109,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 13:06';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 13:30';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1252,6 +1286,7 @@ function salvarConfig(){
     jornada: JORNADA,
     lotacao: LOTACAO,
     linhaIniciada: LINHA_INICIADA,
+    postoIniciado: POSTO_INICIADO,
     linhaConcluida: LINHA_CONCLUIDA,
     progSubidas: [...PROG_SUBIDAS],
     velEmbalagem: Object.fromEntries(
@@ -1285,6 +1320,7 @@ async function ligarNuvem(){
       if(c.jornada)  Object.assign(JORNADA, c.jornada);
       if(c.lotacao)  Object.entries(c.lotacao).forEach(([k,v]) => { LOTACAO[k] = v; });
       if(c.linhaIniciada) Object.assign(LINHA_INICIADA, c.linhaIniciada);
+      if(c.postoIniciado) Object.assign(POSTO_INICIADO, c.postoIniciado);
       if(c.linhaConcluida) Object.assign(LINHA_CONCLUIDA, c.linhaConcluida);
       if(c.progSubidas)   c.progSubidas.forEach(d => PROG_SUBIDAS.add(d));
       if(c.velEmbalagem)  Object.entries(c.velEmbalagem).forEach(([k,v]) => { VEL_EMBALAGEM[k] = v; });
@@ -1321,6 +1357,7 @@ async function ligarNuvem(){
         juntos.etapaLiberada = Math.max(local.etapaLiberada || 0, l.etapaLiberada || 0);
         if(local.loteFab && !l.loteFab) juntos.loteFab = local.loteFab;
         if(local.status === 'cancelado') juntos.status = 'cancelado';
+        if(local.loteConcluido) juntos.loteConcluido = Object.assign({}, l.loteConcluido || {}, local.loteConcluido);
         LOTES[i] = juntos; mudou = true;
       });
       if(mudou) pintaTudo();
@@ -1375,10 +1412,15 @@ function linhaConcluidaHoje(id){
   return !!(c && c.data === AGORA.toLocaleDateString('pt-BR'));
 }
 let SEQ_PROG = 0;   // ordem em que as ordens foram coladas — preserva a sequência da Priscila
+let seqLote = 0;   // contador próprio: 'L' + tamanho da lista colidia após apagar lotes
+function proximoIdLote(){
+  seqLote = Math.max(seqLote, LOTES.reduce((m,l) => Math.max(m, +String(l.id).replace(/\D/g,'') || 0), 0));
+  return 'L' + (++seqLote);
+}
 function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot, rotaPostos}){
-  const p = PADROES[produtoId];
+  const p = PADROES[produtoId] || {vel:null, arranque:0, setupMeta:null};
   const lote = {
-    id: 'L' + (LOTES.length + 1),
+    id: proximoIdLote(),
     numero: num,
     produto: produtoId,
     fragrancia: fragId,
@@ -1976,6 +2018,14 @@ function ligarBotaoAcesso(){
   };
 }
 
+function ligaReprocessar(){
+  const b = document.getElementById('btn-reprocessar');
+  if(!b) return;
+  b.onclick = () => {
+    if(!confirm('Reaplicar as regras atuais de posto e tamanho de lote nas ordens que ainda não foram iniciadas?')) return;
+    reprocessarOrdens();
+  };
+}
 function pintaCarimbo(){
   const topo = document.getElementById('versao-topo');
   if(topo) topo.textContent = 'v ' + VERSAO_SISTEMA;
@@ -2155,6 +2205,9 @@ const AREAS = [
 
 /* Só o GRANEL trabalha em bateladas. A embalagem roda contínuo e consome
    as bateladas do pulmão — por isso ela registra o lote CONSUMIDO, não o próprio. */
+/* Postos onde a Paula fecha o LOTE (tem a quantidade final).
+   Envase do gel, embaladora da pastilha e embaladora/prensa da pedra. */
+const POSTOS_CONCLUI_LOTE = ['GEL-ENV', 'PAST-FP', 'PEDRA-PR'];
 const POSTOS_GRANEL = ['GEL-ENV','PAST-COR','PAST-FP','PEDRA-PR','PAST-BLC'];   // pastilha (corte e embaladora) e corte de bloco também quebram em lotes
 const ehGranel = pid => POSTOS_GRANEL.includes(pid);
 
@@ -2933,6 +2986,95 @@ function apontarQuantidade(loteId, novoTotal){
    Um posto por linha da tela. Ela preenche o lote, conta as caixas
    e registra a parada — sem abrir kiosk nenhum.
 ================================================================= */
+
+/* ============ REPROCESSAR ORDENS ABERTAS ============
+   O roteamento e a divisão em lotes são decididos ao SUBIR a programação e
+   ficam gravados na ordem. Quando uma regra muda (posto novo, tamanho de
+   lote diferente), as ordens já criadas continuam com a regra antiga.
+   Esta função reaplica as regras atuais — só em ordens que NINGUÉM iniciou,
+   para não perder apontamento já feito. */
+function reprocessarOrdens(){
+  const naoIniciado = l => !ativos().some(e => e.lote === l.id) &&
+                           l.status !== 'cancelado' &&
+                           !(l.loteConcluido && Object.keys(l.loteConcluido).length);
+  const alvo = LOTES.filter(naoIniciado);
+  if(!alvo.length){ flash('Nenhuma ordem aberta para reprocessar'); return; }
+
+  // agrupa por número de ordem: a divisão em lotes é feita sobre o total
+  const porOrdem = {};
+  alvo.forEach(l => { (porOrdem[l.numero] = porOrdem[l.numero] || []).push(l); });
+
+  let movidas = 0, redivididas = 0;
+  Object.values(porOrdem).forEach(grupo => {
+    const base = grupo[0];
+    const prod = PRODUTOS.find(p => p.id === base.produto);
+    if(!prod) return;
+
+    const rota  = decodificaRota(prod.nome);
+    const linha = linhaDoProduto(prod.nome);
+    const emb   = EMBALAGENS.find(e => e.id === base.embalagem);
+    const um    = (emb && emb.fator > 1) ? 'CX' : 'UNID';
+    const novoPosto = postoDaOrdem(rota, linha, um);
+
+    // total de unidades da ordem (soma dos lotes atuais)
+    const total = grupo.reduce((s,l) => s + l.prevista, 0);
+    const tam   = TAM_BATELADA[linha] || total;
+    const nLotes = ehGranel(novoPosto) ? Math.max(1, Math.round(total / tam)) : 1;
+    const precisaRedividir = nLotes !== grupo.length;
+    const mudouPosto = grupo.some(l => l.posto !== novoPosto);
+
+    if(!precisaRedividir && !mudouPosto) return;
+
+    // recalcula a rota de etapas
+    const g = gargaloDaRota(rota, linha, 1, prod.nome);
+    let rotaPostos = null;
+    if(linha === 'PEDRA'){
+      const manual = rota.ehMix || (rota.codEmb && /^(CT|DP)/i.test(rota.codEmb)) ||
+                     (rota.codEmb && VEL_EMBALAGEM[rota.codEmb]);
+      if(manual)                    rotaPostos = /CX\d+/i.test(prod.nome) ? ['PEDRA-CX','PEDRA-CXX'] : null;
+      else if(novoPosto==='PEDRA-CR') rotaPostos = rota.temShrink ? ['PEDRA-CR','PEDRA-SHR'] : ['PEDRA-CR','PEDRA-CXX'];
+    } else if(novoPosto === 'PAST-BLC'){
+      rotaPostos = ['PAST-BLC','PAST-BLI'];
+    } else if(rota.temShrink && POSTO_SHRINK[linha] && !/SHR/.test(novoPosto)){
+      rotaPostos = [novoPosto, POSTO_SHRINK[linha]];
+    }
+
+    if(precisaRedividir){
+      // herda o padrão de velocidade do lote antigo, para não perder o tempo já calculado
+      if(!PADROES[base.produto])
+        PADROES[base.produto] = {vel: base.velIdeal || (g ? g.vel : null),
+                                 arranque: base.arranque || 0,
+                                 setupMeta: base.setupMeta || null};
+      // apaga os lotes antigos e recria na divisão correta
+      grupo.forEach(l => {
+        const i = LOTES.findIndex(x => x.id === l.id);
+        if(i >= 0) LOTES.splice(i,1);
+        nuvemApagar('lotes', l.id);
+      });
+      const porLote = Math.round(total / nLotes);
+      for(let k = 0; k < nLotes; k++){
+        const qtd = k === nLotes-1 ? total - porLote*(nLotes-1) : porLote;
+        criarLote({num: base.numero, produtoId: base.produto, fragId: base.fragrancia,
+                   embId: base.embalagem, qtd, linhaId: linha, turnoId: base.turno,
+                   postoId: novoPosto, dataProg: base.dataProg, loteFab: '',
+                   seq: k+1, seqTot: nLotes, rotaPostos});
+      }
+      redivididas++;
+    } else {
+      grupo.forEach(l => {
+        l.posto = novoPosto;
+        l.rotaPostos = rotaPostos;
+        l.etapaLiberada = rotaPostos ? 0 : null;
+        nuvemSalvar('lotes', l.id, l);
+      });
+      movidas++;
+    }
+  });
+
+  flash(`${movidas} ordem(ns) remanejada(s) · ${redivididas} redividida(s) em lotes`);
+  pintaTudo();
+}
+
 function pintaApontamento(){
   // não redesenha enquanto ela mexe num campo do apontamento — vale para
   // digitar lote/quantidade (INPUT) E para o dropdown de setup aberto (SELECT).
@@ -2958,25 +3100,23 @@ function pintaApontamento(){
     const qs = QUADROS.filter(q => q.linha === li.id);
     if(!qs.length) return '';
 
-    const iniciada = LINHA_INICIADA[li.id];
-    // TODA linha informa a hora real de início — cada uma pode começar
-    // em horário diferente (reunião, treinamento, revezamento de café).
-    const horaPadrao = li.id === 'GEL' ? '06:00' : JORNADA.inicioPadrao;   // o envase começa antes
+    // cada POSTO tem sua hora de início: o envase entra 05:40, os demais depois.
+    const algumIniciado = qs.some(q => inicioDoPosto(q.id));
+    const iniciada = algumIniciado;
     return `
-    <section class="grupo ${iniciada ? '' : 'linha-espera'}">
+    <section class="grupo ${algumIniciado ? '' : 'linha-espera'}">
       <div class="grupo-cab">
         <h2>${li.nome}</h2>
         <div class="risco"></div>
-        ${iniciada
-          ? `<span class="tag ok" style="margin-left:auto">iniciada ${hora(iniciada)}</span>
-             <button class="bt" data-ajustarhora="${li.id}" style="font-size:11px;padding:5px 9px">ajustar hora</button>
-             <button class="bt" data-concluirlinha="${li.id}" style="font-size:11px;padding:5px 9px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir linha</button>`
-          : `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-               <input type="time" id="ini-hora-${li.id}" value="${horaPadrao}" style="border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace;font-size:13px">
-               <button class="bt iniciar" data-iniciarhora="${li.id}">▶ Iniciar linha</button>
-             </span>`}
+        <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          ${qs.every(q => inicioDoPosto(q.id))
+            ? `<span class="tag ok">todos os postos iniciados</span>`
+            : `<input type="time" id="ini-hora-${li.id}" value="${JORNADA.inicioPadrao}" style="border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace;font-size:13px">
+               <button class="bt iniciar" data-iniciarhora="${li.id}" title="Marca esta hora nos postos que ainda não começaram">▶ Iniciar os demais</button>`}
+          ${algumIniciado ? `<button class="bt" data-concluirlinha="${li.id}" style="font-size:11px;padding:5px 9px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir linha</button>` : ''}
+        </span>
       </div>
-      ${!iniciada ? `<div class="ap-aviso-inicio">Programação do dia abaixo. A contagem só vale após <b>Iniciar linha</b>.</div>` : ''}
+      ${!algumIniciado ? `<div class="ap-aviso-inicio">Programação do dia abaixo. Cada posto começa a contar depois que informa a sua hora de início.</div>` : ''}
       ${qs.map(q => {
         // TODAS as ordens deste posto ainda abertas — inclusive as de ontem
         const ordens = LOTES.filter(l => {
@@ -2991,6 +3131,8 @@ function pintaApontamento(){
           .map(l => ({l, r: realizado(l, q.id)}))
           // finalizadas continuam acessíveis para lançar/corrigir a quantidade
           // depois — inclusive dias depois. As antigas ficam recolhidas.
+          // lote concluído (quantidade fechada pela Paula) sai da tela
+          .filter(x => !(x.l.loteConcluido && x.l.loteConcluido[q.id]) || MOSTRAR_ANTIGAS[q.id])
           .filter(x => !x.r || !x.r.finalizado ||
                        mesmoDia(x.r.fim, AGORA.getTime()) || MOSTRAR_ANTIGAS[q.id]);
 
@@ -3013,6 +3155,16 @@ function pintaApontamento(){
           <div class="ap-topo">
             <div class="ap-nome">${q.nome}<span>${ROT[s]}</span></div>
             <div class="rot" style="margin-left:auto">${ordens.length} ${ordens.length === 1 ? 'ordem aberta' : 'ordens abertas'}</div>
+          </div>
+
+          <div class="ap-inicio">
+            ${inicioDoPosto(q.id)
+              ? `<span class="tag ok">iniciado ${hora(inicioDoPosto(q.id))}</span>
+                 <button class="bt" data-ajustarposto="${q.id}" style="font-size:10.5px;padding:4px 8px">ajustar hora</button>`
+              : `<span class="rot">este posto ainda não começou —</span>
+                 <input type="time" id="ini-posto-${q.id}" value="${horaPadraoDoPosto(q)}"
+                        style="border:1px solid var(--linha);border-radius:6px;padding:4px 7px;font-family:'DM Mono',monospace;font-size:12px">
+                 <button class="bt iniciar" data-iniciarposto="${q.id}" style="font-size:11px;padding:5px 10px">▶ Iniciar posto</button>`}
           </div>
 
           ${par ? `
@@ -3127,7 +3279,12 @@ function pintaApontamento(){
                   ? '<span class="tag ruim">cancelada</span>'
                   : (r && r.finalizado)
                     ? `<span class="tag ok">finalizada ${hora(r.fim)}</span>
-                       <span class="rot" style="display:block;margin-top:3px;font-size:10px">ainda dá para lançar</span>`
+                       <span class="rot" style="display:block;margin:3px 0;font-size:10px">ainda dá para lançar</span>
+                       ${POSTOS_CONCLUI_LOTE.includes(q.id)
+                         ? `<button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                                    title="A quantidade deste lote está fechada — sai do apontamento"
+                                    style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>`
+                         : ''}`
                   : !r
                     ? (proxima
                         ? `<button class="bt iniciar" data-ini="${l.id}" data-posto-ctx="${q.id}">Iniciar</button>
@@ -3137,7 +3294,12 @@ function pintaApontamento(){
                     : par
                       ? ''
                       : `<button class="bt parar" data-par="${l.id}">Parar</button>
-                         <button class="bt" data-fim="${l.id}" style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>
+                         <button class="bt" data-fim="${l.id}">Finalizar e ir para a próxima</button>
+                         ${POSTOS_CONCLUI_LOTE.includes(q.id)
+                           ? `<button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                                      title="A quantidade deste lote está fechada — sai do apontamento"
+                                      style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>`
+                           : ''}
                          <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`}
               </td>
             </tr>
@@ -3180,6 +3342,28 @@ function pintaApontamento(){
     </section>`;
   }).join('');
 
+  /* CONCLUIR O LOTE — a quantidade está fechada; sai do apontamento.
+     Diferente de "Finalizar e ir para a próxima", que só libera o posto. */
+  document.querySelectorAll('#apont [data-concluirlote]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.concluirlote);
+    if(!l) return;
+    const pid = b.dataset.postoCl;
+    const rr = realizado(l, pid);
+    const f = fatorEmb(l.embalagem);
+    const feito = rr ? Math.floor(rr.produzida / f) : 0;
+    const un = f > 1 ? 'caixas' : 'unidades';
+    if(!confirm(`Concluir o lote ${l.loteFab || l.numero}?\n\nQuantidade final: ${nf(feito)} ${un}.\n\nO lote sai da tela de apontamento.`)) return;
+    l.loteConcluido = l.loteConcluido || {};
+    l.loteConcluido[pid] = AGORA.getTime();
+    // se ainda não tinha sido finalizado, fecha junto
+    if(!rr || !rr.finalizado)
+      registrar({tipo:'lote_finalizado', linha:l.linha, lote:l.id, origem:'supervisao', posto:pid});
+    nuvemSalvar('lotes', l.id, l);
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Lote ${l.loteFab || l.numero} concluído · ${nf(feito)} ${un}`);
+    pintaTudo();
+  });
+
   /* CONCLUIR A LINHA — encerra o dia daquela linha e tira do apontamento */
   document.querySelectorAll('#apont [data-concluirlinha]').forEach(b => b.onclick = () => {
     const linhaId = b.dataset.concluirlinha;
@@ -3221,10 +3405,58 @@ function pintaApontamento(){
     const valor = campo ? campo.value : JORNADA.inicioPadrao;
     const [h,m] = valor.split(':').map(Number);
     if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
-    LINHA_INICIADA[linhaId] = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    const ts = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    LINHA_INICIADA[linhaId] = ts;
+    // marca só os postos que ainda não começaram — não mexe em quem já tem hora
+    let n = 0;
+    QUADROS.filter(q => q.linha === linhaId && !POSTO_INICIADO[q.id])
+           .forEach(q => { POSTO_INICIADO[q.id] = ts; n++; });
     salvarConfig();
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
-    flash(`${nomeLinha(linhaId)} iniciada às ${valor}`);
+    flash(`${n} posto(s) de ${nomeLinha(linhaId)} iniciados às ${valor}`);
+    pintaTudo();
+  });
+
+  /* INICIAR UM POSTO na hora dele */
+  document.querySelectorAll('#apont [data-iniciarposto]').forEach(b => b.onclick = () => {
+    const pid = b.dataset.iniciarposto;
+    const campo = document.getElementById('ini-posto-' + pid);
+    const valor = campo ? campo.value : JORNADA.inicioPadrao;
+    const [h,m] = valor.split(':').map(Number);
+    if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
+    POSTO_INICIADO[pid] = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    const q = quadro(pid);
+    if(q && !LINHA_INICIADA[q.linha]) LINHA_INICIADA[q.linha] = POSTO_INICIADO[pid];
+    salvarConfig();
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`${q ? q.nome : pid} iniciado às ${valor}`);
+    pintaTudo();
+  });
+
+  /* AJUSTAR a hora de um posto */
+  document.querySelectorAll('#apont [data-ajustarposto]').forEach(b => b.onclick = () => {
+    const pid = b.dataset.ajustarposto;
+    const q = quadro(pid);
+    const atual = new Date(POSTO_INICIADO[pid]);
+    const nova = prompt(`A que horas ${q ? q.nome : pid} REALMENTE começou? (HH:MM)\n\nO "deveria ter" será recalculado a partir desse horário.`,
+      String(atual.getHours()).padStart(2,'0') + ':' + String(atual.getMinutes()).padStart(2,'0'));
+    if(!nova) return;
+    const [h,m] = nova.split(':').map(Number);
+    if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
+    const novoTs = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
+    POSTO_INICIADO[pid] = novoTs;
+    // move o início dos lotes já iniciados NESTE posto
+    let movidos = 0;
+    EVENTOS.forEach(e => {
+      if(e.tipo !== 'lote_iniciado' || e.anulado) return;
+      const l = LOTES.find(x => x.id === e.lote);
+      if(!l) return;
+      const postoDoEvento = e.posto || l.posto;
+      if(postoDoEvento === pid && e.ts < novoTs){ e.ts = novoTs; nuvemSalvar('eventos', e.id, e); movidos++; }
+    });
+    salvarConfig();
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`${q ? q.nome : pid} ajustado para ${nova}${movidos ? ' · ' + movidos + ' lote(s) recalculado(s)' : ''}`);
     pintaTudo();
   });
 
@@ -3795,6 +4027,7 @@ document.getElementById('mp-posto').innerHTML =
   QUADROS.map(q => `<option value="${q.id}">${nomeLinha(q.linha)} · ${q.nome}</option>`).join('');
 pintaTudo();
 pintaCarimbo();
+ligaReprocessar();
 setInterval(tique, 1000);
 ligarBotaoAcesso();
 
@@ -3809,6 +4042,15 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
+
 
 
 
