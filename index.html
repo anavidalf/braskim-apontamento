@@ -452,7 +452,8 @@
       <div class="rot">Resta de turno</div>
     </div>
   </div>
-  <div id="usuario-logado" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--apagado);padding-right:14px"></div>
+  <div id="versao-topo" title="Versão publicada. Se não bater com a mais recente, force Ctrl+Shift+R." style="margin-left:auto;font-size:11px;color:var(--apagado);font-family:'DM Mono',monospace;padding-right:14px;white-space:nowrap"></div>
+  <div id="usuario-logado" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--apagado);padding-right:14px"></div>
   <div id="status-nuvem" style="font-size:12px;color:var(--apagado);font-family:'DM Mono',monospace;padding-right:14px">● Iniciando…</div>
 </header>
 
@@ -905,6 +906,10 @@
 
 
 
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1070,7 +1075,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 12:13';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 13:06';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1394,7 +1399,7 @@ function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoI
     velIdeal: p.vel,
     arranque: p.arranque,
     setupMeta: p.setupMeta,
-    padraoMin: p.arranque + qtd / p.vel
+    padraoMin: p.vel ? p.arranque + qtd / p.vel : null
   };
   LOTES.push(lote);
   nuvemSalvar('lotes', lote.id, lote);
@@ -1972,6 +1977,8 @@ function ligarBotaoAcesso(){
 }
 
 function pintaCarimbo(){
+  const topo = document.getElementById('versao-topo');
+  if(topo) topo.textContent = 'v ' + VERSAO_SISTEMA;
   const el = document.getElementById('carimbo-versao');
   if(el) el.textContent = 'Versão do sistema: ' + VERSAO_SISTEMA +
     '  ·  se não bater com a que você publicou, force Ctrl+Shift+R';
@@ -2203,12 +2210,14 @@ function postoDaOrdem(rota, linha, um){
     return 'PAST-COR';
   }
   if(linha === 'PEDRA'){
-    // Mix/cartela usa pedras já prontas -> entra direto na cartela
-    if(rota.codEmb && VEL_EMBALAGEM[rota.codEmb]) return 'PEDRA-CX';
+    // Embalagem MANUAL (cartela CT ou display DP) e qualquer mix: usam pedras
+    // já prontas e são montadas na Cartela/Mix — mesmo sem tempo cronometrado.
+    const manual = rota.ehMix ||
+                   (rota.codEmb && /^(CT|DP)/i.test(rota.codEmb)) ||
+                   (rota.codEmb && VEL_EMBALAGEM[rota.codEmb]);
+    if(manual) return 'PEDRA-CX';
     // ordem com CR01 = etapa da ENCARTUCHADEIRA (a prensa veio em outra ordem)
     if(rota.codPrim && rota.codPrim.startsWith('CR')) return 'PEDRA-CR';
-    // ordem com cartela (CT) = etapa da cartela
-    if(rota.codEmb && /^CT/.test(rota.codEmb)) return 'PEDRA-CX';
     // granel (FP01 / batelada) entra pela Prensa/Embaladora (a dupla)
     return 'PEDRA-PR';
   }
@@ -2615,7 +2624,7 @@ document.getElementById('btn-subir').onclick = () => {
       return;
   }
   let n = 0;
-  PROG.filter(p => p.gargalo && p.unidades > 0 && !p.ehBatelada).forEach((p, i) => {
+  PROG.filter(p => p.unidades > 0 && !p.ehBatelada).forEach((p, i) => {
     // ordens de "Batelada" são a ordem do granel — a Paula aponta o resultado
     // (a pedra FP01 / o mix), não a batelada. Por isso não viram lote no apontamento.
     // a importação alimenta o CADASTRO — não cria lote órfão
@@ -2634,7 +2643,8 @@ document.getElementById('btn-subir').onclick = () => {
     // padrão derivado do gargalo da rota — nunca digitado.
     // meta de setup = o MELHOR preparo já registrado (17 min). É o alvo do SMED.
     const S = POSTOS[p.linha].setup;
-    PADROES[pid] = {vel:p.gargalo.vel, arranque:0, setupMeta:S.melhor};
+    // sem cronometragem, o lote existe mas não tem tempo padrão (vel nula)
+    PADROES[pid] = {vel: p.gargalo ? p.gargalo.vel : null, arranque:0, setupMeta:S.melhor};
 
     const postoId  = postoDaOrdem(p.rota, p.linha, p.um);   // o U.M. define a etapa (UNID = produção, CX = embalagem)
     const dataProgSel = (() => {
@@ -2667,9 +2677,12 @@ document.getElementById('btn-subir').onclick = () => {
       const r = p.rota;
       const temCT = r.codEmb && /^CT/.test(r.codEmb);       // vai pra cartela
       const temCR = r.codPrim && r.codPrim.startsWith('CR'); // vai pra encartuchadeira
-      const ehMixPronto = r.codEmb && VEL_EMBALAGEM[r.codEmb]; // mix usa pedras prontas
-      if(ehMixPronto){
-        rotaBloco = ['PEDRA-CX', 'PEDRA-CXX'];               // cartela -> caixa (outra equipe)
+      const ehManual = r.ehMix || (r.codEmb && /^(CT|DP)/i.test(r.codEmb)) ||
+                       (r.codEmb && VEL_EMBALAGEM[r.codEmb]);
+      if(ehManual){
+        // com caixa no nome (ex: CT12 CX144) segue para o encaixotamento;
+        // sem caixa (ex: DP72) o display já é a embalagem final.
+        rotaBloco = /CX\d+/i.test(p.desc || '') ? ['PEDRA-CX', 'PEDRA-CXX'] : null;
       } else if(temCR){
         // ordem de encartuchadeira: Encart -> Shrink (o shrink conclui, já sai encaixotado)
         // sem shrink, o encaixotamento é etapa própria
@@ -3124,7 +3137,7 @@ function pintaApontamento(){
                     : par
                       ? ''
                       : `<button class="bt parar" data-par="${l.id}">Parar</button>
-                         <button class="bt" data-fim="${l.id}">Finalizar e ir para a próxima</button>
+                         <button class="bt" data-fim="${l.id}" style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>
                          <button class="bt" data-cancelar="${l.id}" style="border-color:#f5c2c2;color:var(--atraso)">Cancelar</button>`}
               </td>
             </tr>
@@ -3781,6 +3794,7 @@ document.getElementById('mp-posto').innerHTML =
   `<option value="TODOS">Todos os postos</option>` +
   QUADROS.map(q => `<option value="${q.id}">${nomeLinha(q.linha)} · ${q.nome}</option>`).join('');
 pintaTudo();
+pintaCarimbo();
 setInterval(tique, 1000);
 ligarBotaoAcesso();
 
@@ -3795,6 +3809,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
