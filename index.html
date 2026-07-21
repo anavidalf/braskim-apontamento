@@ -291,6 +291,13 @@
   .mix-info{margin-top:6px;padding:8px 11px;background:#eef7f0;border:1px solid #a8d5b5;border-radius:7px;font-size:12px;color:#2c6b3f;line-height:1.5}
   .sub-produto td{background:#fafbfc;font-size:12px;color:var(--apagado);border-top:1px dashed var(--linha)}
   .sub-produto td:first-child{color:var(--tinta);font-weight:500}
+  .faixa-concluidas{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;
+    padding:10px 13px;background:#f3f7f4;border:1px solid #d9e6dd;border-radius:9px}
+  .chip-conc{display:inline-flex;align-items:center;gap:7px;background:#fff;border:1px solid #cfe0d5;
+    border-radius:20px;padding:4px 6px 4px 11px;font-size:12px;color:#2f5540;font-weight:500}
+  .chip-conc button{border:none;background:#eef4f0;color:#3d6b4f;cursor:pointer;font-size:10.5px;
+    padding:3px 8px;border-radius:12px}
+  .chip-conc button:hover{background:#dcebe2}
   .chip-lanc{display:inline-flex;align-items:center;gap:5px;background:#eef4ff;border:1px solid #d6e2f7;
     border-radius:20px;padding:3px 5px 3px 10px;font-size:11.5px;color:#2c3a4d}
   .chip-lanc .x-lanc{border:none;background:none;color:#8a9099;cursor:pointer;font-size:14px;
@@ -894,6 +901,10 @@
 
 
 
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1059,7 +1070,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 11:51';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '21/07 12:13';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1236,6 +1247,7 @@ function salvarConfig(){
     jornada: JORNADA,
     lotacao: LOTACAO,
     linhaIniciada: LINHA_INICIADA,
+    linhaConcluida: LINHA_CONCLUIDA,
     progSubidas: [...PROG_SUBIDAS],
     velEmbalagem: Object.fromEntries(
       Object.entries(VEL_EMBALAGEM).map(([k,v]) => [k, {velUnMin:v.velUnMin, porPessoa:!!v.porPessoa, fonte:v.fonte}])),
@@ -1268,6 +1280,7 @@ async function ligarNuvem(){
       if(c.jornada)  Object.assign(JORNADA, c.jornada);
       if(c.lotacao)  Object.entries(c.lotacao).forEach(([k,v]) => { LOTACAO[k] = v; });
       if(c.linhaIniciada) Object.assign(LINHA_INICIADA, c.linhaIniciada);
+      if(c.linhaConcluida) Object.assign(LINHA_CONCLUIDA, c.linhaConcluida);
       if(c.progSubidas)   c.progSubidas.forEach(d => PROG_SUBIDAS.add(d));
       if(c.velEmbalagem)  Object.entries(c.velEmbalagem).forEach(([k,v]) => { VEL_EMBALAGEM[k] = v; });
     }
@@ -1351,6 +1364,11 @@ function registrar(ev){
 }
 
 const MOSTRAR_ANTIGAS = {};   // por posto: exibir também as ordens finalizadas de outros dias
+const LINHA_CONCLUIDA = {};   // linhaId -> {data:'21/07', ts} · sai do apontamento até o dia seguinte
+function linhaConcluidaHoje(id){
+  const c = LINHA_CONCLUIDA[id];
+  return !!(c && c.data === AGORA.toLocaleDateString('pt-BR'));
+}
 let SEQ_PROG = 0;   // ordem em que as ordens foram coladas — preserva a sequência da Priscila
 function criarLote({num, produtoId, fragId, embId, qtd, linhaId, turnoId, postoId, dataProg, loteFab, seq, seqTot, rotaPostos}){
   const p = PADROES[produtoId];
@@ -2910,7 +2928,20 @@ function pintaApontamento(){
   if(foco && foco.closest && foco.closest('#apont') &&
      (foco.tagName === 'INPUT' || foco.tagName === 'SELECT' || foco.tagName === 'TEXTAREA')) return;
 
-  document.getElementById('apont').innerHTML = LINHAS.map(li => {
+  const concluidas = LINHAS.filter(li => linhaConcluidaHoje(li.id));
+  const faixaConcluidas = concluidas.length
+    ? `<div class="faixa-concluidas">
+         <span class="rot">Linha(s) concluídas hoje:</span>
+         ${concluidas.map(li => `<span class="chip-conc">
+             ✓ ${li.nome}
+             <span class="rot" style="font-size:10px">${hora(LINHA_CONCLUIDA[li.id].ts)}</span>
+             <button data-reabrirlinha="${li.id}" title="reabrir">reabrir</button>
+           </span>`).join('')}
+       </div>`
+    : '';
+
+  document.getElementById('apont').innerHTML = faixaConcluidas + LINHAS.map(li => {
+    if(linhaConcluidaHoje(li.id)) return '';   // concluída: fora da tela de apontamento
     const qs = QUADROS.filter(q => q.linha === li.id);
     if(!qs.length) return '';
 
@@ -2925,7 +2956,8 @@ function pintaApontamento(){
         <div class="risco"></div>
         ${iniciada
           ? `<span class="tag ok" style="margin-left:auto">iniciada ${hora(iniciada)}</span>
-             <button class="bt" data-ajustarhora="${li.id}" style="font-size:11px;padding:5px 9px">ajustar hora</button>`
+             <button class="bt" data-ajustarhora="${li.id}" style="font-size:11px;padding:5px 9px">ajustar hora</button>
+             <button class="bt" data-concluirlinha="${li.id}" style="font-size:11px;padding:5px 9px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir linha</button>`
           : `<span style="margin-left:auto;display:flex;gap:6px;align-items:center">
                <input type="time" id="ini-hora-${li.id}" value="${horaPadrao}" style="border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace;font-size:13px">
                <button class="bt iniciar" data-iniciarhora="${li.id}">▶ Iniciar linha</button>
@@ -3036,7 +3068,11 @@ function pintaApontamento(){
             const un    = f > 1 ? 'cx' : 'un';
             const ontem = l.dataProg !== DIA_HOJE;
 
-            const proxima = !r && ordens.filter(x => !x.r)[0] === ordens.find(x => x.l.id === l.id);
+            // Pode iniciar qualquer ordem enquanto NADA estiver rodando no posto.
+            // (Antes só a primeira da fila podia começar — uma ordem antiga
+            //  esquecida sem iniciar travava todas as do dia.)
+            const algoRodando = ordens.some(x => x.r && !x.r.finalizado);
+            const proxima = !r && !algoRodando;
 
             return `<tr class="${r ? 'rodando' : ''}">
               <td class="mono"><b>${l.numero}</b>
@@ -3130,6 +3166,32 @@ function pintaApontamento(){
       }).join('')}
     </section>`;
   }).join('');
+
+  /* CONCLUIR A LINHA — encerra o dia daquela linha e tira do apontamento */
+  document.querySelectorAll('#apont [data-concluirlinha]').forEach(b => b.onclick = () => {
+    const linhaId = b.dataset.concluirlinha;
+    const abertas = LOTES.filter(l => l.linha === linhaId && l.status !== 'cancelado')
+                         .filter(l => { const r = realizado(l); return r && !r.finalizado; });
+    const aviso = abertas.length
+      ? `Atenção: ${abertas.length} ordem(ns) ainda em andamento nesta linha.\n\n`
+      : '';
+    if(!confirm(`${aviso}Concluir ${nomeLinha(linhaId)}?\n\nA linha sai da tela de apontamento. Dá para reabrir depois.`)) return;
+    LINHA_CONCLUIDA[linhaId] = {data: AGORA.toLocaleDateString('pt-BR'), ts: AGORA.getTime()};
+    salvarConfig();
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`${nomeLinha(linhaId)} concluída`);
+    pintaTudo();
+  });
+
+  /* REABRIR uma linha concluída por engano */
+  document.querySelectorAll('#apont [data-reabrirlinha]').forEach(b => b.onclick = () => {
+    const linhaId = b.dataset.reabrirlinha;
+    delete LINHA_CONCLUIDA[linhaId];
+    salvarConfig();
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`${nomeLinha(linhaId)} reaberta`);
+    pintaTudo();
+  });
 
   /* abrir/fechar as ordens finalizadas de dias anteriores */
   document.querySelectorAll('#apont [data-antigas]').forEach(b => b.onclick = () => {
@@ -3733,6 +3795,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
