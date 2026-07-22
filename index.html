@@ -293,6 +293,10 @@
   .sub-produto td:first-child{color:var(--tinta);font-weight:500}
   .ap-inicio{display:flex;gap:7px;align-items:center;flex-wrap:wrap;padding:7px 13px;
     background:#fafbfc;border-bottom:1px solid var(--linha);font-size:12px}
+  .lista-retiradas{margin-top:9px;border-top:1px dashed var(--linha);padding-top:8px}
+  .item-retirada{display:flex;align-items:center;gap:9px;padding:6px 3px;font-size:12px;
+    border-bottom:1px solid #f1f4f8}
+  .item-retirada:last-child{border-bottom:none}
   .dias-semana{display:flex;gap:5px;flex-wrap:wrap}
   .dias-semana label{cursor:pointer;user-select:none}
   .dias-semana input{position:absolute;opacity:0;pointer-events:none}
@@ -996,6 +1000,12 @@
 
 
 
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1038,6 +1048,13 @@ const VEL_EMBALAGEM = {
   // média de 3 cronometragens: 1:59, 2:24, 2:01 → média 2:08 (128s) por caixa de 72
   'DP72': {velUnMin: 72 / (128/60), porPessoa:true,
            fonte:'média de 3 medições: 2min08s por caixa, 1 pessoa'}
+};
+/* CAIXA DA PASTILHA — medido em CAIXAS por minuto, que é como a Ana cronometrou.
+   Convertido para unidades/min pelo tamanho da caixa na hora do cálculo.
+   CX24 (72 un): 0,90 × 72 = 64,8 un/min · CX36 (108 un): 0,60 × 108 = 64,8 un/min */
+const VEL_CAIXA_PAST = {
+  'CX24': 0.90,
+  'CX36': 0.60
 };
 const EMB_REFERENCIA = 'CT12 CX144';   // usada para mostrar o ritmo do posto manual na config
 
@@ -1169,7 +1186,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '21/07 19:36';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '22/07 11:31';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1534,8 +1551,9 @@ async function ligarNuvem(){
         const juntos = Object.assign({}, local, l);
         juntos.etapaLiberada = Math.max(local.etapaLiberada || 0, l.etapaLiberada || 0);
         if(local.loteFab && !l.loteFab) juntos.loteFab = local.loteFab;
-        if(local.status === 'cancelado') juntos.status = 'cancelado';
-        if(local.loteConcluido) juntos.loteConcluido = Object.assign({}, l.loteConcluido || {}, local.loteConcluido);
+        if(local.status === 'cancelado' && l.status === 'cancelado') juntos.status = 'cancelado';
+        if(local.status && local.status !== 'cancelado') juntos.status = local.status;   // reativada
+        if(local.loteConcluido) juntos.loteConcluido = local.loteConcluido;   // o local manda: pode ter sido reativada
         if(local.ordemFila != null && l.ordemFila == null) juntos.ordemFila = local.ordemFila;
         LOTES[i] = juntos; mudou = true;
       });
@@ -1586,7 +1604,8 @@ function registrar(ev){
 
 let FILTRO_TURNO = 'TODOS';   // 'TODOS' | 'DIA' | 'NOITE'
 const turnoDoLote = l => (l.turno === 'NOITE' ? 'NOITE' : 'DIA');
-const MOSTRAR_ANTIGAS = {};   // por posto: exibir também as ordens finalizadas de outros dias
+const MOSTRAR_ANTIGAS = {};
+const MOSTRAR_RETIRADAS = {};   // ordens concluídas/canceladas que saíram da tela   // por posto: exibir também as ordens finalizadas de outros dias
 const LINHA_CONCLUIDA = {};   // linhaId -> {data:'21/07', ts} · sai do apontamento até o dia seguinte
 function linhaConcluidaHoje(id){
   const c = LINHA_CONCLUIDA[id];
@@ -2717,6 +2736,19 @@ function gargaloDaRota(rota, linha, pessoasManual = 1, desc = null){
   // MIX: as pedras já estão prontas, isto é SÓ montagem manual da caixa.
   // Não passa por prensa nem flowpack. Se a embalagem foi medida, usa o tempo;
   // senão, fica sem tempo (aguardando medição), mas nunca herda a máquina.
+  // CAIXA DA PASTILHA: o ritmo depende do tamanho da caixa (CX24 ≠ CX36).
+  // É posto de encaixotamento: não passa por corte nem flowpack.
+  if(linha === 'PAST' && rota.codEmb && !rota.temShrink){
+    const cod = (String(rota.codEmb).match(/CX\d+/i) || [])[0];
+    const cxMin = cod ? VEL_CAIXA_PAST[cod.toUpperCase()] : null;
+    if(cxMin && rota.unPorEmb){
+      const vm = cxMin * rota.unPorEmb;   // caixas/min → unidades/min
+      return {posto:`Caixa da pastilha (${cod.toUpperCase()} · ${cxMin} cx/min)`,
+              ideal:vm, vel:vm,
+              rota:[{posto:'Caixa ' + cod.toUpperCase(), vel:vm}], fator:1, perdaRitmo:0};
+    }
+  }
+
   if(rota.ehMix){
     const cfg = rota.codEmb ? VEL_EMBALAGEM[rota.codEmb] : null;
     if(!cfg) return null;   // mix não medido: sem tempo, mas não usa prensa/fp
@@ -3329,11 +3361,13 @@ function reprocessarOrdens(){
 }
 
 function pintaApontamento(){
-  // não redesenha enquanto ela mexe num campo do apontamento — vale para
-  // digitar lote/quantidade (INPUT) E para o dropdown de setup aberto (SELECT).
-  // Sem o SELECT aqui, o relógio redesenhava por baixo e o menu fechava sozinho.
+  /* O RELÓGIO não redesenha enquanto ela mexe num campo do apontamento —
+     senão apagaria o que está sendo digitado e fecharia o menu de setup.
+     Mas a trava vale SÓ para o relógio: uma ação dela (parar, retomar,
+     finalizar) tem de redesenhar mesmo com o cursor num campo. Sem isso, a
+     parada era gravada e a tela ficava congelada, sem o botão Retomar. */
   const foco = document.activeElement;
-  if(foco && foco.closest && foco.closest('#apont') &&
+  if(PINTURA_DO_RELOGIO && foco && foco.closest && foco.closest('#apont') &&
      (foco.tagName === 'INPUT' || foco.tagName === 'SELECT' || foco.tagName === 'TEXTAREA')) return;
 
   const concluidas = LINHAS.filter(li => linhaConcluidaHoje(li.id));
@@ -3448,7 +3482,15 @@ function pintaApontamento(){
           ${(() => {
             /* SETUP EM CURSO: nada rodando, mas já houve batelada fechada aqui.
                O TEMPO é medido pelo sistema. O TIPO é apontado pela Paula. */
-            if(rodando) return '';
+            /* "rodando" aqui significa o lote que OCUPA o card — inclusive um já
+               finalizado que continua na tela para lançar quantidade. Para o setup
+               isso não serve: preparo é o intervalo entre um lote que ACABOU e o
+               próximo que AINDA NÃO COMEÇOU. */
+            const emProducao   = ordens.find(x => x.r && !x.r.finalizado);
+            const esperandoVez = ordens.some(x => !x.r);
+
+            if(emProducao) return '';       // máquina produzindo: não é preparo
+            if(!esperandoVez) return '';    // nada na fila: o posto acabou o serviço
             const ult = LOTES.filter(l => l.posto === q.id)
               .map(realizado).filter(x => x && x.finalizado)
               .sort((a,b) => b.fim - a.fim)[0];
@@ -3630,6 +3672,33 @@ function pintaApontamento(){
               ${MOSTRAR_ANTIGAS[q.id] ? '▲ ocultar' : '▼ mostrar'} ${antigas} ordem(ns) de dias anteriores
             </button></div>`;
         })()}
+
+        ${(() => {
+          /* ORDENS RETIRADAS — concluídas ou canceladas saem da tela. Sem isto
+             não havia como trazer de volta uma retirada por engano. */
+          const fora = LOTES.filter(l => {
+            if(l.posto !== q.id && !(l.rotaPostos && l.rotaPostos.indexOf(q.id) >= 0)) return false;
+            return (l.loteConcluido && l.loteConcluido[q.id]) || l.status === 'cancelado';
+          });
+          if(!fora.length) return '';
+          const aberto = MOSTRAR_RETIRADAS[q.id];
+          return `<div style="padding:8px 12px;border-top:1px solid var(--linha)">
+            <button class="bt" data-retiradas="${q.id}" style="font-size:11px;padding:5px 10px">
+              ${aberto ? '▲ ocultar' : '↩ mostrar'} ${fora.length} ordem(ns) retirada(s) da tela
+            </button>
+            ${aberto ? `<div class="lista-retiradas">
+              ${fora.map(l => `<div class="item-retirada">
+                <span class="mono"><b>${l.numero}</b>${l.seqTot > 1 ? ` <span class="rot">${l.seq}/${l.seqTot}</span>` : ''}</span>
+                <span class="rot">${nomeProd(l.produto)}</span>
+                <span class="tag ${l.status === 'cancelado' ? 'ruim' : 'ok'}">
+                  ${l.status === 'cancelado' ? 'cancelada' : 'concluída'}</span>
+                <button class="bt" data-reativar="${l.id}" data-posto-rt="${q.id}"
+                        style="margin-left:auto;font-size:11px;padding:4px 10px;border-color:#bcd3f7;color:#2c4a7c">
+                  ↩ Reativar</button>
+              </div>`).join('')}
+            </div>` : ''}
+          </div>`;
+        })()}
         </article>`;
       }).join('')}
     </section>`;
@@ -3721,6 +3790,40 @@ function pintaApontamento(){
     b.onclick = () => moverNaFila(b.dataset.sobe, b.dataset.postoFila, -1));
   document.querySelectorAll('#apont [data-desce]').forEach(b =>
     b.onclick = () => moverNaFila(b.dataset.desce, b.dataset.postoFila, +1));
+
+  /* abrir/fechar o painel de ordens retiradas */
+  document.querySelectorAll('#apont [data-retiradas]').forEach(b => b.onclick = () => {
+    const id = b.dataset.retiradas;
+    MOSTRAR_RETIRADAS[id] = !MOSTRAR_RETIRADAS[id];
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    pintaTudo();
+  });
+
+  /* REATIVAR — devolve para a tela uma ordem concluída ou cancelada */
+  document.querySelectorAll('#apont [data-reativar]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.reativar);
+    if(!l) return;
+    const pid = b.dataset.postoRt;
+    const eraCancelada = l.status === 'cancelado';
+
+    if(!confirm(`Reativar a ordem ${l.numero}${l.seqTot > 1 ? ' · batelada ' + l.seq + '/' + l.seqTot : ''}?\n\nEla volta para a tela de apontamento.`)) return;
+
+    if(l.loteConcluido) delete l.loteConcluido[pid];
+    if(eraCancelada){
+      l.status = 'aberto';
+      delete l.motivoCancel;
+      // o cancelamento é anulado, mas fica no histórico
+      EVENTOS.forEach(e => {
+        if(e.lote === l.id && e.tipo === 'lote_cancelado' && !e.anulado){
+          e.anulado = true; nuvemSalvar('eventos', e.id, e);
+        }
+      });
+    }
+    nuvemSalvar('lotes', l.id, l);
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Ordem ${l.numero} reativada`);
+    pintaTudo();
+  });
 
   /* filtro de turno */
   document.querySelectorAll('#apont [data-turno]').forEach(b => b.onclick = () => {
@@ -4345,8 +4448,11 @@ function pintaTudo(){
 }
 
 /* simulação: as linhas produzem sozinhas, como o chão de fábrica faria */
+let PINTURA_DO_RELOGIO = false;   // marca que o redesenho veio do relógio, não de uma ação
+
 function tique(){
-  AGORA = new Date();   // hora real, a cada segundo
+  AGORA = new Date();
+  PINTURA_DO_RELOGIO = true;   // este redesenho é do relógio
 
   document.getElementById('relogio').textContent = AGORA.toLocaleTimeString('pt-BR',{hour12:false});
   document.getElementById('data').textContent =
@@ -4359,6 +4465,7 @@ function tique(){
   // O cálculo automático vive apenas no "Deveria ter" (tempo × ritmo).
 
   pintaTudo();
+  PINTURA_DO_RELOGIO = false;   // fora do tique, todo redesenho é de uma ação
 }
 
 montaFormTurno();
@@ -4382,6 +4489,12 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
 
 
 
