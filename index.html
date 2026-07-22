@@ -1016,6 +1016,8 @@
 
 
 
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1196,7 +1198,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '22/07 12:08';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '22/07 12:32';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -3308,7 +3310,8 @@ function reprocessarOrdens(){
     const precisaRedividir = nLotes !== grupo.length;
     const mudouPosto = grupo.some(l => l.posto !== novoPosto);
 
-    if(!precisaRedividir && !mudouPosto) return;
+    const mudouLinha = grupo.some(l => l.linha !== linha);
+    if(!precisaRedividir && !mudouPosto && !mudouLinha) return;
 
     // recalcula a rota de etapas
     const g = gargaloDaRota(rota, linha, 1, prod.nome);
@@ -3326,10 +3329,10 @@ function reprocessarOrdens(){
 
     if(precisaRedividir){
       // herda o padrão de velocidade do lote antigo, para não perder o tempo já calculado
-      if(!PADROES[base.produto])
-        PADROES[base.produto] = {vel: base.velIdeal || (g ? g.vel : null),
-                                 arranque: base.arranque || 0,
-                                 setupMeta: base.setupMeta || null};
+      const gNovo2 = gargaloDaRota(rota, linha, pessoasDoPosto(novoPosto), prod.nome);
+      PADROES[base.produto] = {vel: (gNovo2 && gNovo2.vel) || null,
+                               arranque: base.arranque || 0,
+                               setupMeta: base.setupMeta || null};
       // guarda se algum já tinha sido iniciado, para remarcar no primeiro lote novo
       const inicioAntigo = ativos()
         .filter(e => grupo.some(l => l.id === e.lote) && e.tipo === 'lote_iniciado')
@@ -3365,10 +3368,19 @@ function reprocessarOrdens(){
       }
       redivididas++;
     } else {
+      // recalcula o padrão: mudar de linha muda a máquina e o ritmo
+      const gNovo = gargaloDaRota(rota, linha, pessoasDoPosto(novoPosto), prod.nome);
       grupo.forEach(l => {
+        l.linha = linha;                 // sem isto o antimofo seguia como Líquidos
         l.posto = novoPosto;
         l.rotaPostos = rotaPostos;
         l.etapaLiberada = rotaPostos ? 0 : null;
+        if(gNovo && gNovo.vel){
+          l.velIdeal  = gNovo.vel;
+          l.padraoMin = (l.arranque || 0) + l.prevista / gNovo.vel;
+        } else {
+          l.velIdeal = null; l.padraoMin = null;   // posto sem cronometragem
+        }
         nuvemSalvar('lotes', l.id, l);
       });
       movidas++;
@@ -3575,14 +3587,18 @@ function pintaApontamento(){
             const dv    = devia !== null ? feito - devia : null;
             const un    = f > 1 ? 'cx' : 'un';
             const ontem = l.dataProg !== DIA_HOJE;
+            // iniciada há mais de 12h sem finalizar: provavelmente esquecida
+            const esquecida = r && !r.finalizado && (AGORA.getTime() - r.inicio) >= min(12 * 60);
             // no shrink, a ordem pode estar listada antes da etapa anterior começar
             const aguardaAnterior = l.rotaPostos && q.id === 'SHRINK' &&
                                     l.rotaPostos.indexOf(q.id) > (l.etapaLiberada || 0);
 
-            // Pode iniciar qualquer ordem enquanto NADA estiver rodando no posto.
-            // (Antes só a primeira da fila podia começar — uma ordem antiga
-            //  esquecida sem iniciar travava todas as do dia.)
-            const algoRodando = ordens.some(x => x.r && !x.r.finalizado);
+            /* Pode iniciar qualquer ordem enquanto NADA estiver rodando no posto.
+               Uma ordem iniciada e esquecida sem finalizar (mais de 12h) NÃO
+               trava mais o posto — antes o card ficava travado para sempre e
+               nenhuma ordem do dia conseguia começar. */
+            const algoRodando = ordens.some(x =>
+              x.r && !x.r.finalizado && (AGORA.getTime() - x.r.inicio) < min(12 * 60));
             const proxima = !r && !algoRodando;
 
             const podeReordenar = POSTOS_REORDENA.includes(q.id) && ordens.length > 1;
@@ -3597,6 +3613,7 @@ function pintaApontamento(){
                           ${iFila === ordens.length - 1 ? 'disabled' : ''}>▼</button>
                 </span>` : ''}<b>${l.numero}</b>
                 ${l.seqTot > 1 ? `<span class="tag" style="font-size:9px">${l.seq}/${l.seqTot}</span>` : ''}
+                ${esquecida ? `<span class="tag ruim" title="Iniciada há mais de 12h sem finalizar">esquecida aberta</span>` : ''}
                 <button class="tag ${turnoDoLote(l) === 'NOITE' ? 'tag-noite' : 'tag-dia'}"
                         data-trocaturno="${l.id}"
                         title="Turno desta ordem — clique para trocar">
@@ -3931,8 +3948,14 @@ function pintaApontamento(){
   document.querySelectorAll('#apont [data-iniciarposto]').forEach(b => b.onclick = () => {
     const pid = b.dataset.iniciarposto;
     const campo = document.getElementById('ini-posto-' + pid);
-    const valor = campo ? campo.value : JORNADA.inicioPadrao;
-    const [h,m] = valor.split(':').map(Number);
+    // O seletor de hora do tablet às vezes devolve vazio. Antes o botão
+    // simplesmente não funcionava; agora cai no horário padrão da jornada.
+    let valor = (campo && campo.value) ? campo.value : JORNADA.inicioPadrao;
+    let [h,m] = String(valor).split(':').map(Number);
+    if(isNaN(h) || isNaN(m)){
+      [h,m] = String(JORNADA.inicioPadrao).split(':').map(Number);
+      flash('Hora em branco — usando o padrão ' + JORNADA.inicioPadrao);
+    }
     if(isNaN(h) || isNaN(m)){ flash('Hora inválida'); return; }
     POSTO_INICIADO[pid] = new Date(AGORA.getFullYear(), AGORA.getMonth(), AGORA.getDate(), h, m).getTime();
     const q = quadro(pid);
@@ -4557,6 +4580,8 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
 
 
 
