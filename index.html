@@ -316,6 +316,10 @@
   .bt-turno:hover{background:#f4f7fb}
   .bt-turno.ativo{background:#011689;border-color:#011689;color:#fff}
   .bt-turno.ativo .rot{color:#c7d2f0}
+  .tag-dia{font-size:9px;background:#eef1f5;color:#6b7684;border:none;cursor:pointer;font-family:inherit}
+  .tag-dia:hover{background:#dfe5ee}
+  button.tag-noite{border:none;cursor:pointer;font-family:inherit}
+  button.tag-noite:hover{background:#1d2438}
   .tag-noite{font-size:9px;background:#2c3550;color:#dbe4f5}
   .faixa-concluidas{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:16px;
     padding:10px 13px;background:#f3f7f4;border:1px solid #d9e6dd;border-radius:9px}
@@ -1006,6 +1010,9 @@
 
 
 
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1186,7 +1193,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '22/07 11:31';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '22/07 11:48';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1555,6 +1562,7 @@ async function ligarNuvem(){
         if(local.status && local.status !== 'cancelado') juntos.status = local.status;   // reativada
         if(local.loteConcluido) juntos.loteConcluido = local.loteConcluido;   // o local manda: pode ter sido reativada
         if(local.ordemFila != null && l.ordemFila == null) juntos.ordemFila = local.ordemFila;
+        if(local.turno) juntos.turno = local.turno;   // turno corrigido à mão
         LOTES[i] = juntos; mudou = true;
       });
       if(mudou) pintaTudo();
@@ -3442,7 +3450,15 @@ function pintaApontamento(){
                        mesmoDia(x.r.fim, AGORA.getTime()) || MOSTRAR_ANTIGAS[q.id]);
 
         const rodando = ordens.find(x => x.r);
-        const par = rodando ? paradas().find(p => p.lote === rodando.l.id && p.aberta) : null;
+        /* A parada é do POSTO, não da ordem visível. Antes ela só era desenhada
+           se houvesse ordem ocupando o card — se as ordens saíssem da tela, a
+           parada ficava aberta para sempre, sem botão para encerrar. */
+        const par = paradas().find(p => {
+          if(!p.aberta) return false;
+          const lp = LOTES.find(x => x.id === p.lote);
+          if(!lp) return false;
+          return lp.posto === q.id || (lp.rotaPostos && lp.rotaPostos.indexOf(q.id) >= 0);
+        });
 
         const s = !rodando ? 'sem_lote'
                 : par ? 'parada'
@@ -3476,7 +3492,7 @@ function pintaApontamento(){
           <div class="ap-parado">
             <span class="mono">${hhmm(par.duracao)}</span>
             <span>parada por <b>${par.motivo}</b> desde ${hora(par.inicio)}</span>
-            <button class="bt retomar" data-ret="${rodando.l.id}" style="margin-left:auto">Retomar</button>
+            <button class="bt retomar" data-ret="${par.lote}" style="margin-left:auto">Retomar</button>
           </div>` : ''}
 
           ${(() => {
@@ -3570,7 +3586,10 @@ function pintaApontamento(){
                           ${iFila === ordens.length - 1 ? 'disabled' : ''}>▼</button>
                 </span>` : ''}<b>${l.numero}</b>
                 ${l.seqTot > 1 ? `<span class="tag" style="font-size:9px">${l.seq}/${l.seqTot}</span>` : ''}
-                ${turnoDoLote(l) === 'NOITE' ? `<span class="tag tag-noite">noite</span>` : ''}
+                <button class="tag ${turnoDoLote(l) === 'NOITE' ? 'tag-noite' : 'tag-dia'}"
+                        data-trocaturno="${l.id}"
+                        title="Turno desta ordem — clique para trocar">
+                  ${turnoDoLote(l) === 'NOITE' ? 'noite' : 'dia'}</button>
                 ${aguardaAnterior ? `<span class="tag" style="font-size:9px;background:#eef1f5;color:#6b7684">aguarda etapa anterior</span>` : ''}
                 ${ontem ? `<span class="tag med" style="font-size:9px">${l.dataProg}</span>` : ''}
                 ${r ? '<span class="tag azul" style="font-size:9px">rodando</span>' : ''}
@@ -3822,6 +3841,17 @@ function pintaApontamento(){
     nuvemSalvar('lotes', l.id, l);
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash(`Ordem ${l.numero} reativada`);
+    pintaTudo();
+  });
+
+  /* TROCAR O TURNO DA ORDEM — a leitura da programação pode errar */
+  document.querySelectorAll('#apont [data-trocaturno]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.trocaturno);
+    if(!l) return;
+    l.turno = turnoDoLote(l) === 'NOITE' ? 'DIA' : 'NOITE';
+    nuvemSalvar('lotes', l.id, l);
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Ordem ${l.numero} agora é do turno da ${l.turno === 'NOITE' ? 'noite' : 'dia'}`);
     pintaTudo();
   });
 
@@ -4489,6 +4519,9 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
 
 
 
