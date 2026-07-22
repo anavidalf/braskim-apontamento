@@ -1013,6 +1013,9 @@
 
 
 
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1193,7 +1196,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '22/07 11:48';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '22/07 12:08';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -2627,7 +2630,8 @@ function linhaDoProduto(desc){
   const d = desc.toLowerCase();
   if(d.includes('gel'))                                  return 'GEL';
   if(d.includes('pastilha') || d.includes('bloco'))      return 'PAST';   // bloco sanitário roda na pastilha
-  if(d.includes('pedra') || d.includes('naftalina'))     return 'PEDRA';
+  if(d.includes('pedra') || d.includes('naftalina')
+     || d.includes('antimofo'))                          return 'PEDRA';   // antimofo roda na prensa/embaladora
   return 'LIQ';   // limpador perfumado, difusor de ambientes, saponáceo
 }
 
@@ -2757,12 +2761,19 @@ function gargaloDaRota(rota, linha, pessoasManual = 1, desc = null){
     }
   }
 
-  if(rota.ehMix){
+  /* MONTAGEM MANUAL DA CAIXA (cartela, display, mix): o produto já está pronto,
+     isto é só montagem. Não passa por prensa nem flowpack. Antes valia só para
+     quem tinha "mix" no nome — CT e DP caíam na máquina, com tempo errado. */
+  const manualCaixa = rota.ehMix ||
+                      (rota.codEmb && /^(CT|DP)/i.test(rota.codEmb)) ||
+                      (rota.codEmb && VEL_EMBALAGEM[rota.codEmb]);
+  if(manualCaixa){
     const cfg = rota.codEmb ? VEL_EMBALAGEM[rota.codEmb] : null;
-    if(!cfg) return null;   // mix não medido: sem tempo, mas não usa prensa/fp
+    if(!cfg) return null;   // ainda não cronometrado: sem tempo, mas nunca herda a máquina
     const pessoas = pessoasDoPosto('PEDRA-CX');
     const vm = cfg.porPessoa ? cfg.velUnMin * pessoas : cfg.velUnMin;
-    return {posto:`Montagem manual da caixa mix (${pessoas}p)`, ideal:vm, vel:vm,
+    const nome = rota.ehMix ? 'caixa mix' : 'caixa ' + rota.codEmb;
+    return {posto:`Montagem manual da ${nome} (${pessoas}p)`, ideal:vm, vel:vm,
             rota:[{posto:'Montagem manual', vel:vm}], fator:1, perdaRitmo:0};
   }
 
@@ -3632,6 +3643,9 @@ function pintaApontamento(){
                   : (r && r.finalizado)
                     ? `<span class="tag ok">finalizada ${hora(r.fim)}</span>
                        <span class="rot" style="display:block;margin:3px 0;font-size:10px">ainda dá para lançar</span>
+                       <button class="bt" data-reabrir="${l.id}" data-posto-rb="${q.id}"
+                               title="Voltar a produzir neste lote — a parada era provisória"
+                               style="border-color:#cbd5e6;color:#3d4a63">↻ Reabrir</button>
                        <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
                                title="A quantidade deste lote está fechada — sai do apontamento"
                                style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>`
@@ -3841,6 +3855,30 @@ function pintaApontamento(){
     nuvemSalvar('lotes', l.id, l);
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash(`Ordem ${l.numero} reativada`);
+    pintaTudo();
+  });
+
+  /* REABRIR — desfaz a finalização e volta a produzir no mesmo lote.
+     Parada provisória: a linha para, a ordem é fechada, e depois retoma. */
+  document.querySelectorAll('#apont [data-reabrir]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.reabrir);
+    if(!l) return;
+    const pid = b.dataset.postoRb;
+    if(!confirm(`Reabrir o lote ${l.loteFab || l.numero}?\n\nEle volta a produzir e o tempo passa a contar de novo.\nA quantidade já lançada é mantida.`)) return;
+
+    // anula a finalização deste posto (o histórico fica)
+    const alvo = ativos()
+      .filter(e => e.lote === l.id && e.tipo === 'lote_finalizado' &&
+                   (!l.rotaPostos || !e.posto || e.posto === pid))
+      .sort((a,b) => b.ts - a.ts)[0];
+    if(alvo){ alvo.anulado = true; nuvemSalvar('eventos', alvo.id, alvo); }
+
+    // se tinha saído da tela, volta também
+    if(l.loteConcluido) delete l.loteConcluido[pid];
+    nuvemSalvar('lotes', l.id, l);
+
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Lote ${l.loteFab || l.numero} reaberto · produzindo`);
     pintaTudo();
   });
 
@@ -4519,6 +4557,9 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
 
 
 
