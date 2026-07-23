@@ -1026,6 +1026,14 @@
 
 
 
+
+
+
+
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1076,6 +1084,22 @@ const VEL_CAIXA_PAST = {
   'CX24': 0.90,
   'CX36': 0.60
 };
+/* Produtos com ritmo próprio, diferente da meta do posto.
+   A naftalina é mais lenta que a pedra na prensa e tem cartela cronometrada. */
+const VEL_PRODUTO_POSTO = [
+  {padrao: /naftalina/i, rotulo: 'Naftalina', postos: {
+    'PEDRA-PR': {velUnMin: 40, fonte: 'medido: 40 un/min na prensa/embaladora'},
+    // 6 cartelas de 12 un em 3min30s = 72 un em 210 s = 35 s por cartela
+    'PEDRA-CX': {velUnMin: 72 / (210/60), porPessoa: true,
+                 fonte: 'medido: 6 cartelas de 12 un em 3min30s, 1 pessoa'}
+  }}
+];
+function velProdutoPosto(desc, postoId){
+  if(!desc || !postoId) return null;
+  const m = VEL_PRODUTO_POSTO.find(v => v.padrao.test(desc));
+  return (m && m.postos[postoId]) || null;
+}
+
 const EMB_REFERENCIA = 'CT12 CX144';   // usada para mostrar o ritmo do posto manual na config
 
 /* ---------------- LOTAÇÃO POR POSTO ---------------- */
@@ -1206,7 +1230,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '23/07 11:52';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '23/07 13:07';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1467,6 +1491,10 @@ function migrarPostos(){
       mudou = true;
     }
 
+    // o campo linha pode ter ficado velho quando a regra de roteamento mudou
+    const qq = quadro(l.posto);
+    if(qq && qq.linha && l.linha !== qq.linha){ l.linha = qq.linha; mudou = true; }
+
     // as marcas de "lote concluído" também são por posto
     if(l.loteConcluido){
       const novo = {};
@@ -1487,6 +1515,58 @@ function migrarPostos(){
       if(!POSTO_INICIADO[novo]) POSTO_INICIADO[novo] = POSTO_INICIADO[velho];
       delete POSTO_INICIADO[velho];
     }
+  });
+  return n;
+}
+
+/* Cascata de etapas para uma ordem, dada a regra ATUAL. Usada tanto ao subir
+   quanto ao corrigir ordens antigas. */
+function rotaDaOrdem(rota, linha, postoEntrada){
+  if(linha === 'PEDRA' && rota.ehNaftalina) return ['PEDRA-PR', 'PEDRA-CX'];
+  if(postoEntrada === 'PAST-BLC')           return ['PAST-BLC', 'PAST-BLI'];
+  if(rota.temShrink && POSTO_SHRINK[linha] && postoEntrada !== 'SHRINK')
+    return [postoEntrada, POSTO_SHRINK[linha]];
+  return null;
+}
+
+/* CORRIGE A LINHA DE ORDENS JÁ GRAVADAS.
+   O posto e a linha são decididos ao subir e ficam gravados. Quando a regra
+   muda (o antimofo saiu de Líquidos para Pedra), a ordem antiga continua no
+   posto errado — e aparece na linha errada no Dashboard. O botão de
+   reprocessar não resolve, porque ele pula ordem que já tem produção lançada.
+   Aqui só mexemos em ordens cuja LINHA está comprovadamente errada, levando
+   os apontamentos junto para a quantidade não sumir do card. */
+function corrigirLinhaDosLotes(){
+  let n = 0;
+  LOTES.forEach(l => {
+    if(l.loteConcluido && Object.keys(l.loteConcluido).length) return;
+    const prod = PRODUTOS.find(p => p.id === l.produto);
+    if(!prod) return;
+    const linhaCerta = linhaDoProduto(prod.nome);
+    const q = quadro(l.posto);
+    if(!q || q.linha === linhaCerta) return;      // já está na linha certa
+
+    const rota = decodificaRota(prod.nome);
+    const emb  = EMBALAGENS.find(e => e.id === l.embalagem);
+    const novo = postoDaOrdem(rota, linhaCerta, (emb && emb.fator > 1) ? 'CX' : 'UNID');
+    if(!novo || novo === l.posto) return;
+
+    // os apontamentos guardam o posto: sem remapear, a quantidade some da tela
+    const antigo = l.posto;
+    EVENTOS.forEach(e => {
+      if(e.lote === l.id && e.posto === antigo){ e.posto = novo; nuvemSalvar('eventos', e.id, e); }
+    });
+
+    l.posto = novo;
+    l.linha = linhaCerta;
+    l.rotaPostos = rotaDaOrdem(rota, linhaCerta, novo);
+    l.etapaLiberada = l.rotaPostos ? 0 : null;
+
+    const g = gargaloDaRota(rota, linhaCerta, pessoasDoPosto(novo), prod.nome);
+    if(g && g.vel){ l.velIdeal = g.vel; l.padraoMin = (l.arranque || 0) + l.prevista / g.vel; }
+
+    nuvemSalvar('lotes', l.id, l);
+    n++;
   });
   return n;
 }
@@ -1548,6 +1628,8 @@ async function ligarNuvem(){
     seqEvento = EVENTOS.reduce((m,e) => Math.max(m, e.id || 0), 0);
     SEQ_PROG  = LOTES.reduce((m,l) => Math.max(m, l.ordemProg || 0), 0);
     migrarPostos();
+    const relinhados = corrigirLinhaDosLotes();
+    if(relinhados) flash(`${relinhados} ordem(ns) movida(s) para a linha correta`);
     const reparados = repararIdsDuplicados();
     if(reparados) flash(`${reparados} ordem(ns) com código repetido corrigida(s)`);
 
@@ -1632,7 +1714,7 @@ const LINHA_CONCLUIDA = {};   // linhaId -> {data:'21/07', ts} · sai do apontam
    na fila, rodando ou finalizadas sem lançar. São elas que não podem sumir. */
 function pendentesDaLinha(linhaId){
   return LOTES.filter(l => {
-    if(l.linha !== linhaId) return false;
+    if(linhaDoLote(l) !== linhaId) return false;
     if(l.status === 'cancelado' || l.status === 'fim') return false;
     const postos = l.rotaPostos || [l.posto];
     // pendente se QUALQUER etapa dela ainda não foi concluída
@@ -1728,8 +1810,14 @@ function realizado(lote, postoCtx){                 // === vw_lote_realizado
   if(!ini) return null;
   const fim = evs.find(e => e.tipo === 'lote_finalizado');
 
-  const produzida = evs.filter(e => e.tipo === 'contagem').reduce((s,e) => s + e.qtdUn, 0);
-  const refugo    = evs.filter(e => e.tipo === 'refugo').reduce((s,e) => s + e.qtdUn, 0);
+  /* qtdUn é calculado ao registrar. Evento antigo (ou vindo da nuvem sem esse
+     campo) fazia a soma virar NaN e o card mostrava "total: NaN". */
+  const unDoEvento = e => {
+    if(typeof e.qtdUn === 'number' && !isNaN(e.qtdUn)) return e.qtdUn;
+    return (e.qtdEmb || 0) * fatorEmb(lote.embalagem);
+  };
+  const produzida = evs.filter(e => e.tipo === 'contagem').reduce((s,e) => s + unDoEvento(e), 0);
+  const refugo    = evs.filter(e => e.tipo === 'refugo').reduce((s,e) => s + unDoEvento(e), 0);
 
   const tParado = paradas()
     .filter(p => p.lote === lote.id)
@@ -1841,11 +1929,21 @@ function loteRodandoNoPosto(postoId){
     .map(x => x.r)[0];
 }
 
+/* A linha de uma ordem é a do POSTO onde ela roda — não o campo gravado.
+   Ordem antiga guarda a linha decidida na época em que foi subida; quando a
+   regra muda (o antimofo saiu de Líquidos para Pedra), o campo fica velho e
+   a ordem aparece na linha errada no Dashboard. O posto é a fonte da verdade. */
+function linhaDoLote(l){
+  if(!l) return null;
+  const q = quadro(l.posto);
+  return (q && q.linha) || l.linha;
+}
+
 function estadoLinha(linhaId){
   // Entre os lotes abertos da linha, o que interessa é o que está rodando AGORA:
   // ordena pelo início mais recente. (Antes pegava o primeiro da lista, que podia
   // ser um lote antigo ainda aberto — mostrava lote diferente do apontamento.)
-  const emAndamento = LOTES.filter(l => l.linha === linhaId)
+  const emAndamento = LOTES.filter(l => linhaDoLote(l) === linhaId)
     .filter(l => { const r = realizado(l); return r && !r.finalizado; })
     .sort((a,b) => inicioDoLote(b) - inicioDoLote(a))
     .map(realizado)[0];
@@ -2300,6 +2398,18 @@ function pintaLotacao(){
       : (q.manualFixo && vref
           ? `${vref.velUnMin.toFixed(1)} un/min por pessoa (${EMB_REFERENCIA}) · medido`
           : (q.manual ? 'posto manual' : 'ritmo de máquina'));
+
+    // produtos com ritmo próprio neste posto (ex.: naftalina)
+    const proprios = VEL_PRODUTO_POSTO
+      .filter(v => v.postos[q.id])
+      .map(v => {
+        const c = v.postos[q.id];
+        const pes = pessoasDoPosto(q.id);
+        const efetiva = c.porPessoa ? c.velUnMin * pes : c.velUnMin;
+        return `<div class="rot" style="margin-top:4px">
+          <b>${v.rotulo}</b>: ${efetiva.toFixed(1)} un/min${c.porPessoa ? ` (${pes}p)` : ''}
+          <span style="opacity:.75"> · ${c.fonte}</span></div>`;
+      }).join('');
     const vel = velDoQuadro(q, null);
     const fr = (FATOR_RITMO[q.linha] || {v:1}).v;
     const meta = q.meta;
@@ -2312,7 +2422,7 @@ function pintaLotacao(){
         <input type="number" min="0" max="12" value="${cfg.pessoas}" data-lot="${q.id}"
                style="width:64px;text-align:right;border:1px solid var(--linha);border-radius:6px;padding:6px 8px;font-family:'DM Mono',monospace">
       </td>
-      <td class="rot">${escala}</td>
+      <td class="rot">${escala}${proprios}</td>
     </tr>
     ${q.id === 'LIQ' ? PRODUTOS_LIQ.map(pl => {
       const fr = (FATOR_RITMO.LIQ || {v:1}).v;
@@ -2527,6 +2637,8 @@ function postoDaOrdem(rota, linha, um){
   if(linha === 'PEDRA'){
     // Embalagem MANUAL (cartela CT ou display DP) e qualquer mix: usam pedras
     // já prontas e são montadas na Cartela/Mix — mesmo sem tempo cronometrado.
+    // a naftalina NASCE na prensa — o CT no nome é a etapa seguinte, não a entrada
+    if(rota.ehNaftalina) return 'PEDRA-PR';
     const manual = rota.ehMix ||
                    (rota.codEmb && /^(CT|DP)/i.test(rota.codEmb)) ||
                    (rota.codEmb && VEL_EMBALAGEM[rota.codEmb]);
@@ -2544,6 +2656,14 @@ function pessoasDoPosto(pid){
 }
 function velDoQuadro(q, lote){
   const f = (FATOR_RITMO[q.linha] || {v:1}).v;
+
+  /* Produto com ritmo cronometrado neste posto manda na meta da máquina.
+     A naftalina roda a 40 un/min na prensa, e não aos 50 da pedra. */
+  if(lote){
+    const p = PRODUTOS.find(x => x.id === lote.produto);
+    const vp = velProdutoPosto(p && p.nome, q.id);
+    if(vp) return vp.porPessoa ? vp.velUnMin * pessoasDoPosto(q.id) : vp.velUnMin;
+  }
   if(q.manual){
     const pessoas = pessoasDoPosto(q.id);
     const un = lote ? fatorEmb(lote.embalagem) : 96;
@@ -2670,6 +2790,7 @@ function decodificaRota(desc){
   const dp   = desc.match(/\bDP(\d{1,4})\b/i);
   const ct   = desc.match(/\bCT(\d{1,4})\b/i);
   const _ehBloco = /\bbloco\b/i.test(desc);
+  const _ehNaftalina = /naftalina/i.test(desc);
 
   // BLOCO: começa no corte de bloco. O Blister vem do código BL01 no nome.
   const etapas = _ehBloco
@@ -2731,9 +2852,12 @@ function decodificaRota(desc){
   const ehMix = /\bmix\b/i.test(desc);   // montagem manual, não passa por máquina
   const temShrink = /\bSH\d{2}\b/i.test(desc);   // ordem passa pela etapa de shrink
   const ehBloco = /\bbloco\b/i.test(desc);   // bloco sanitário: rota corte->blister->caixa, lote 1526
+  /* NAFTALINA: sempre começa na prensa/embaladora e cascateia para a cartela.
+     Não é montagem de produto pronto como o mix — a peça nasce na prensa. */
+  const ehNaftalina = /naftalina/i.test(desc);
   const mixInfo = ehMix ? {fragrancias:['floral','marine','lavanda','limão'], porFragrancia: unPorEmb ? Math.round(unPorEmb/4) : null} : null;
 
-  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos, motivoConferencia, mixInfo, ehMix, temShrink, ehBloco};
+  return {etapas, fatorPrim, codPrim, codEmb, unPorEmb, manual, avisos, motivoConferencia, mixInfo, ehMix, ehNaftalina, temShrink, ehBloco};
 }
 
 /* Gargalo = o posto mais lento da ROTA. Rotas reais:
@@ -2750,6 +2874,22 @@ function gargaloDaRota(rota, linha, pessoasManual = 1, desc = null){
 
   // velocidade específica do produto (ex: saponáceo 5 un/min vs limpador 7)
   const velProd = velDoProduto(desc);
+
+  /* NAFTALINA: rota própria — prensa/embaladora e depois cartela. As duas
+     etapas são cronometradas, então o gargalo sai delas, não da meta da pedra. */
+  if(rota.ehNaftalina){
+    const vPr = velProdutoPosto(desc, 'PEDRA-PR');
+    const vCx = velProdutoPosto(desc, 'PEDRA-CX');
+    const pes = pessoasDoPosto('PEDRA-CX');
+    const etapasN = [];
+    if(vPr) etapasN.push({posto:'Prensa / Embaladora', ideal:vPr.velUnMin, vel:vPr.velUnMin});
+    if(vCx) etapasN.push({posto:`Cartela / Mix (${pes}p)`,
+                          ideal:vCx.velUnMin * pes, vel:vCx.velUnMin * pes});
+    if(etapasN.length){
+      const g = etapasN.reduce((a,b) => (a.vel <= b.vel ? a : b));
+      return {posto:g.posto, ideal:g.ideal, vel:g.vel, rota:etapasN, fator:1, perdaRitmo:0};
+    }
+  }
 
   if(P.granel) etapas.push({posto:P.granel.nome,
                             ideal: velProd || P.granel.ideal,
@@ -3034,6 +3174,10 @@ document.getElementById('btn-subir').onclick = () => {
     } else if(p.linha === 'PAST'){
       // pastilha comum: cada ordem é uma etapa própria (corte, embaladora, shrink, caixa)
       rotaBloco = null;
+    } else if(p.linha === 'PEDRA' && p.rota.ehNaftalina){
+      /* NAFTALINA: prensa/embaladora -> cartela. Iniciar a prensa já libera a
+         cartela, como nas outras cascatas. */
+      rotaBloco = ['PEDRA-PR', 'PEDRA-CX'];
     } else if(p.linha === 'PEDRA'){
       // PEDRA — cascata conforme o caminho de embalagem.
       // Regra: cartela (CT) e encartuchadeira (CR) nunca coexistem.
@@ -3342,7 +3486,9 @@ function reprocessarOrdens(){
     // recalcula a rota de etapas
     const g = gargaloDaRota(rota, linha, 1, prod.nome);
     let rotaPostos = null;
-    if(linha === 'PEDRA'){
+    if(linha === 'PEDRA' && rota.ehNaftalina){
+      rotaPostos = ['PEDRA-PR', 'PEDRA-CX'];
+    } else if(linha === 'PEDRA'){
       const manual = rota.ehMix || (rota.codEmb && /^(CT|DP)/i.test(rota.codEmb)) ||
                      (rota.codEmb && VEL_EMBALAGEM[rota.codEmb]);
       if(manual)                    rotaPostos = null;   // cartela/mix conclui na própria etapa
@@ -4675,6 +4821,14 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
+
+
+
+
 
 
 
