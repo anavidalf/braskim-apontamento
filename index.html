@@ -1018,6 +1018,10 @@
 
 
 
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1198,7 +1202,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '22/07 12:32';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '22/07 17:43';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -2449,6 +2453,8 @@ const POSTOS_CONCLUI_LOTE = ['GEL-ENV', 'PAST-FP', 'PEDRA-PR'];
 /* Postos onde a fila pode ser reordenada à mão. O shrink recebe ordens das
    três linhas, então quem está lá escolhe o que fazer primeiro. */
 const POSTOS_REORDENA = ['SHRINK'];
+/* Postos sem troca de formato: o tempo entre lotes não é preparo de máquina. */
+const SEM_SETUP = ['PEDRA-CX', 'PAST-CX', 'SHRINK', 'GEL-CR04'];
 const POSTOS_GRANEL = ['GEL-ENV','PAST-FP','PEDRA-PR','PAST-BLC'];   // pastilha (corte e embaladora) e corte de bloco também quebram em lotes
 const ehGranel = pid => POSTOS_GRANEL.includes(pid);
 
@@ -2547,7 +2553,11 @@ function velDoQuadro(q, lote){
     if(!vm) return q.meta || null;
     return vm.porPessoa ? vm.velUnMin * pessoas : vm.velUnMin;
   }
-  return q.meta ? q.meta * f : null;
+  /* Postos sem meta de máquina (Caixa, Shrink) ficavam SEM velocidade:
+     a coluna "deveria ter" vinha vazia e o card parecia morto. A ordem já
+     traz a velocidade calculada no roteamento — use essa. */
+  if(!q.meta) return (lote && lote.velIdeal) ? lote.velIdeal : null;
+  return q.meta * f;
 }
 
 /* lote de fabricação em andamento (1V046A...) — preenchido pela supervisora */
@@ -3530,6 +3540,15 @@ function pintaApontamento(){
 
             if(emProducao) return '';       // máquina produzindo: não é preparo
             if(!esperandoVez) return '';    // nada na fila: o posto acabou o serviço
+
+            /* Posto que ainda não começou o dia não pode estar em preparo.
+               O card chegava a mostrar "ainda não começou" e "setup em curso"
+               ao mesmo tempo. */
+            if(!inicioDoPosto(q.id)) return '';
+
+            /* Montagem manual não tem setup: não há máquina para trocar de
+               formato. O tempo parado ali é fila ou falta de material. */
+            if(q.manual || q.manualFixo || SEM_SETUP.includes(q.id)) return '';
             const ult = LOTES.filter(l => l.posto === q.id)
               .map(realizado).filter(x => x && x.finalizado)
               .sort((a,b) => b.fim - a.fim)[0];
@@ -3627,7 +3646,7 @@ function pintaApontamento(){
               <td style="font-size:13px">${nomeProd(l.produto)}
                 <span class="rot" style="display:block">${nomeEmb(l.embalagem)}</span></td>
 
-              <td><input class="in-lote${r && !l.loteFab ? ' pedindo' : ''}" data-lote="${l.id}"
+              <td><input class="in-lote${r && !l.loteFab ? ' pedindo' : ''}" data-lote="${l.id}" data-posto-lote="${q.id}"
                          value="${l.loteFab}" placeholder="digite o lote"
                          spellcheck="false" ${r && !l.loteFab ? 'data-foco="1"' : ''}></td>
 
@@ -3659,6 +3678,9 @@ function pintaApontamento(){
                              style="margin-left:5px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir</button>`
                   : (r && r.finalizado)
                     ? `<span class="tag ok">finalizada ${hora(r.fim)}</span>
+                       <button class="bt" data-ajustafim="${l.id}" data-posto-af="${q.id}"
+                               title="A ordem acabou antes — corrigir a hora"
+                               style="font-size:10px;padding:3px 8px;margin:2px 0">ajustar hora</button>
                        <span class="rot" style="display:block;margin:3px 0;font-size:10px">ainda dá para lançar</span>
                        <button class="bt" data-reabrir="${l.id}" data-posto-rb="${q.id}"
                                title="Voltar a produzir neste lote — a parada era provisória"
@@ -3872,6 +3894,50 @@ function pintaApontamento(){
     nuvemSalvar('lotes', l.id, l);
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash(`Ordem ${l.numero} reativada`);
+    pintaTudo();
+  });
+
+  /* AJUSTAR A HORA DE ENCERRAMENTO
+     A Paula às vezes só finaliza no dia seguinte, e o sistema grava o
+     encerramento na hora do clique. Isso incha o tempo decorrido e mistura
+     dias diferentes no mesmo turno. */
+  document.querySelectorAll('#apont [data-ajustafim]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.ajustafim);
+    if(!l) return;
+    const pid = b.dataset.postoAf;
+    const ev = ativos()
+      .filter(e => e.lote === l.id && e.tipo === 'lote_finalizado' &&
+                   (!l.rotaPostos || !e.posto || e.posto === pid))
+      .sort((a,b2) => b2.ts - a.ts)[0];
+    if(!ev){ flash('Não achei o encerramento desta ordem'); return; }
+
+    const atual = new Date(ev.ts);
+    const dia = prompt('Em que DIA a ordem acabou? (dd/mm)', _dm(atual));
+    if(dia === null) return;
+    const horaTxt = prompt('E em que HORA? (hh:mm)',
+      String(atual.getHours()).padStart(2,'0') + ':' + String(atual.getMinutes()).padStart(2,'0'));
+    if(horaTxt === null) return;
+
+    const md = String(dia).match(/^(\d{1,2})\/(\d{1,2})$/);
+    const mh = String(horaTxt).match(/^(\d{1,2}):(\d{2})$/);
+    if(!md || !mh){ flash('Data ou hora em formato inválido'); return; }
+
+    const novo = new Date(AGORA.getFullYear(), +md[2] - 1, +md[1], +mh[1], +mh[2]);
+    // dd/mm sem ano: se cair no futuro, é do ano passado (virada de ano)
+    if(novo.getTime() > AGORA.getTime() + min(60)) novo.setFullYear(novo.getFullYear() - 1);
+
+    const ini = ativos().filter(e => e.lote === l.id && e.tipo === 'lote_iniciado' &&
+                                     (!l.rotaPostos || !e.posto || e.posto === pid))
+                        .sort((a,b2) => a.ts - b2.ts)[0];
+    if(ini && novo.getTime() <= ini.ts){
+      flash('O encerramento não pode ser antes do início (' + hora(ini.ts) + ')');
+      return;
+    }
+
+    ev.ts = novo.getTime();
+    nuvemSalvar('eventos', ev.id, ev);
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Encerramento da ordem ${l.numero} corrigido para ${_dm(novo)} ${hora(novo.getTime())}`);
     pintaTudo();
   });
 
@@ -4122,13 +4188,21 @@ function pintaApontamento(){
   /* LANÇAMENTO: soma a quantidade daquele lote e limpa o campo,
      pronto para o próximo lote. Enter faz o mesmo que o botão. */
   function lancar(loteId, postoCtx){
-    const campo = document.querySelector(`#apont [data-lanc="${loteId}"]`);
+    /* A MESMA ordem aparece em dois cards quando está em cascata (ex.: na
+       encartuchadeira e no shrink). Sem amarrar ao posto, o querySelector
+       pegava o campo do PRIMEIRO card — a Paula digitava no shrink e o
+       sistema lia o campo vazio da etapa anterior. */
+    const campo = (postoCtx
+        ? document.querySelector(`#apont [data-lanc="${loteId}"][data-posto-lanc="${postoCtx}"]`)
+        : null) || document.querySelector(`#apont [data-lanc="${loteId}"]`);
     if(!campo) return;
     const qtd = +campo.value || 0;
     if(qtd <= 0){ flash('Informe a quantidade'); campo.focus(); return; }
     const l = LOTES.find(x => x.id === loteId);
     if(!l) return;
-    const campoLote = document.querySelector(`#apont [data-lote="${loteId}"]`);
+    const campoLote = (postoCtx
+        ? document.querySelector(`#apont [data-lote="${loteId}"][data-posto-lote="${postoCtx}"]`)
+        : null) || document.querySelector(`#apont [data-lote="${loteId}"]`);
     const loteFab = campoLote ? (campoLote.value || '').trim() : (l.loteFab || '');
     if(loteFab && l.loteFab !== loteFab){ l.loteFab = loteFab; nuvemSalvar('lotes', l.id, l); }
 
@@ -4580,6 +4654,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
