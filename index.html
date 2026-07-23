@@ -1022,6 +1022,10 @@
 
 
 
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1202,7 +1206,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '22/07 17:43';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '23/07 11:52';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1624,6 +1628,18 @@ const turnoDoLote = l => (l.turno === 'NOITE' ? 'NOITE' : 'DIA');
 const MOSTRAR_ANTIGAS = {};
 const MOSTRAR_RETIRADAS = {};   // ordens concluídas/canceladas que saíram da tela   // por posto: exibir também as ordens finalizadas de outros dias
 const LINHA_CONCLUIDA = {};   // linhaId -> {data:'21/07', ts} · sai do apontamento até o dia seguinte
+/* Ordens da linha que ainda NÃO foram concluídas — em qualquer estado:
+   na fila, rodando ou finalizadas sem lançar. São elas que não podem sumir. */
+function pendentesDaLinha(linhaId){
+  return LOTES.filter(l => {
+    if(l.linha !== linhaId) return false;
+    if(l.status === 'cancelado' || l.status === 'fim') return false;
+    const postos = l.rotaPostos || [l.posto];
+    // pendente se QUALQUER etapa dela ainda não foi concluída
+    return postos.some(p => !(l.loteConcluido && l.loteConcluido[p]));
+  });
+}
+
 function linhaConcluidaHoje(id){
   const c = LINHA_CONCLUIDA[id];
   return !!(c && c.data === AGORA.toLocaleDateString('pt-BR'));
@@ -3435,7 +3451,11 @@ function pintaApontamento(){
     : '';
 
   document.getElementById('apont').innerHTML = barraTurno + faixaConcluidas + LINHAS.map(li => {
-    if(linhaConcluidaHoje(li.id)) return '';   // concluída: fora da tela de apontamento
+    /* Linha concluída sai da tela — MAS só se não houver ordem pendente.
+       Concluir a linha não pode fazer sumir quantidade que falta lançar:
+       a ordem só sai quando o LOTE dela for concluído. */
+    const pendLinha = pendentesDaLinha(li.id);
+    if(linhaConcluidaHoje(li.id) && !pendLinha.length) return '';
     const qs = QUADROS.filter(q => q.linha === li.id);
     if(!qs.length) return '';
 
@@ -3448,6 +3468,8 @@ function pintaApontamento(){
         <h2>${li.nome}</h2>
         <div class="risco"></div>
         <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+          ${linhaConcluidaHoje(li.id) ? `<span class="tag" style="font-size:9px;background:#fdf0dc;color:#8a5a12"
+             title="A linha foi concluída, mas estas ordens ainda não">linha concluída · ${pendLinha.length} pendente(s)</span>` : ''}
           ${li.semHora
             ? `<span class="rot">etapa em cascata — começa quando a etapa anterior libera</span>`
             : (qs.every(q => inicioDoPosto(q.id)) ? `<span class="tag ok">todos os postos iniciados</span>` : '')}
@@ -3475,12 +3497,17 @@ function pintaApontamento(){
           .sort((a,b) => (a.ordemFila != null ? a.ordemFila : (a.ordemProg || 0)) -
                          (b.ordemFila != null ? b.ordemFila : (b.ordemProg || 0)))
           .map(l => ({l, r: realizado(l, q.id)}))
-          // finalizadas continuam acessíveis para lançar/corrigir a quantidade
-          // depois — inclusive dias depois. As antigas ficam recolhidas.
-          // lote concluído (quantidade fechada pela Paula) sai da tela
-          .filter(x => !(x.l.loteConcluido && x.l.loteConcluido[q.id]) || MOSTRAR_ANTIGAS[q.id])
-          .filter(x => !x.r || !x.r.finalizado ||
-                       mesmoDia(x.r.fim, AGORA.getTime()) || MOSTRAR_ANTIGAS[q.id]);
+          /* ÚNICA razão para a ordem sair da tela: o lote foi CONCLUÍDO.
+             Antes havia um segundo filtro que escondia a finalizada quando o
+             encerramento não era de hoje — ordem esquecida sem lançar sumia
+             sozinha na virada do dia, e corrigir a hora para ontem fazia ela
+             desaparecer na hora. Quantidade pendente nunca pode sumir. */
+          .filter(x => !(x.l.loteConcluido && x.l.loteConcluido[q.id]));
+
+        /* Pendências de outros dias: ficam na tela até serem concluídas.
+           O aviso existe para a Paula não perder de vista o que ficou aberto. */
+        const pendentesAntigas = ordens.filter(x =>
+          x.l.dataProg !== DIA_HOJE && !(x.l.loteConcluido && x.l.loteConcluido[q.id])).length;
 
         const rodando = ordens.find(x => x.r);
         /* A parada é do POSTO, não da ordem visível. Antes ela só era desenhada
@@ -3508,7 +3535,11 @@ function pintaApontamento(){
         <article class="ap" data-s="${s}">
           <div class="ap-topo">
             <div class="ap-nome">${q.nome}<span>${ROT[s]}</span></div>
-            <div class="rot" style="margin-left:auto">${ordens.length} ${ordens.length === 1 ? 'ordem aberta' : 'ordens abertas'}</div>
+            <div class="rot" style="margin-left:auto;display:flex;align-items:center;gap:7px">
+              ${pendentesAntigas ? `<span class="tag" style="font-size:9px;background:#fdf0dc;color:#8a5a12"
+                 title="Ordens de outros dias ainda não concluídas">${pendentesAntigas} de dias anteriores</span>` : ''}
+              ${ordens.length} ${ordens.length === 1 ? 'ordem aberta' : 'ordens abertas'}
+            </div>
           </div>
 
           ${q.semHora ? '' : `<div class="ap-inicio">
@@ -3732,20 +3763,6 @@ function pintaApontamento(){
           : `<div class="ap-vazio">Nenhuma ordem aberta neste posto. A Priscila sobe a programação.</div>`}
 
         ${(() => {
-          // ordens finalizadas em OUTROS dias — dá para reabrir e lançar/corrigir
-          const antigas = LOTES.filter(l => {
-            if(l.posto !== q.id && !(l.rotaPostos && l.rotaPostos.indexOf(q.id) >= 0)) return false;
-            const rr = realizado(l, q.id);
-            return rr && rr.finalizado && !mesmoDia(rr.fim, AGORA.getTime());
-          }).length;
-          if(!antigas) return '';
-          return `<div style="padding:8px 12px;border-top:1px solid var(--linha)">
-            <button class="bt" data-antigas="${q.id}" style="font-size:11px;padding:5px 10px">
-              ${MOSTRAR_ANTIGAS[q.id] ? '▲ ocultar' : '▼ mostrar'} ${antigas} ordem(ns) de dias anteriores
-            </button></div>`;
-        })()}
-
-        ${(() => {
           /* ORDENS RETIRADAS — concluídas ou canceladas saem da tela. Sem isto
              não havia como trazer de volta uma retirada por engano. */
           const fora = LOTES.filter(l => {
@@ -3805,12 +3822,16 @@ function pintaApontamento(){
   /* CONCLUIR A LINHA — encerra o dia daquela linha e tira do apontamento */
   document.querySelectorAll('#apont [data-concluirlinha]').forEach(b => b.onclick = () => {
     const linhaId = b.dataset.concluirlinha;
-    const abertas = LOTES.filter(l => l.linha === linhaId && l.status !== 'cancelado')
-                         .filter(l => { const r = realizado(l); return r && !r.finalizado; });
-    const aviso = abertas.length
-      ? `Atenção: ${abertas.length} ordem(ns) ainda em andamento nesta linha.\n\n`
+    /* Antes o aviso só contava as ordens EM ANDAMENTO — uma ordem parada na
+       fila sumia sem nenhum alerta. Agora conta tudo que não foi concluído. */
+    const pend = pendentesDaLinha(linhaId);
+    const aviso = pend.length
+      ? `Esta linha tem ${pend.length} ordem(ns) ainda não concluída(s):\n` +
+        pend.slice(0, 6).map(l => `  · ${l.numero}${l.seqTot > 1 ? ` (${l.seq}/${l.seqTot})` : ''}`).join('\n') +
+        (pend.length > 6 ? `\n  · … e mais ${pend.length - 6}` : '') +
+        `\n\nElas CONTINUAM na tela para você fechar depois.\n\n`
       : '';
-    if(!confirm(`${aviso}Concluir ${nomeLinha(linhaId)}?\n\nA linha sai da tela de apontamento. Dá para reabrir depois.`)) return;
+    if(!confirm(`${aviso}Concluir ${nomeLinha(linhaId)}?\n\nOs postos sem pendência saem da tela. Dá para reabrir depois.`)) return;
     LINHA_CONCLUIDA[linhaId] = {data: AGORA.toLocaleDateString('pt-BR'), ts: AGORA.getTime()};
     salvarConfig();
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -4654,6 +4675,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
