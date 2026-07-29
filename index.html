@@ -1034,6 +1034,10 @@
 
 
 
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1221,6 +1225,7 @@ let MOTIVOS = [
   {nome:'Ajuste da prensa',       cat:'Processo',      penaliza:true,  postos:['PEDRA-PR']}
 ];
 const motivo = n => MOTIVOS.find(m => m.nome === n) || {cat:'—', penaliza:true};
+let MOTIVO_EDITANDO = -1;   // índice em edição no formulário, ou -1
 
 /* motivos válidos para um posto: os gerais + os específicos dele */
 const motivosDoPosto = pid =>
@@ -1230,7 +1235,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '23/07 13:07';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '29/07 18:22';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1433,6 +1438,7 @@ function salvarConfig(){
   nuvemSalvar('config', 'geral', {
     jornada: JORNADA,
     lotacao: LOTACAO,
+    motivos: MOTIVOS,
     linhaIniciada: LINHA_INICIADA,
     postoIniciado: POSTO_INICIADO,
     linhaConcluida: LINHA_CONCLUIDA,
@@ -1614,6 +1620,7 @@ async function ligarNuvem(){
       if(c.linhaIniciada) Object.assign(LINHA_INICIADA, c.linhaIniciada);
       if(c.postoIniciado) Object.assign(POSTO_INICIADO, c.postoIniciado);
       if(c.linhaConcluida) Object.assign(LINHA_CONCLUIDA, c.linhaConcluida);
+      if(Array.isArray(c.motivos) && c.motivos.length) MOTIVOS = c.motivos;
       if(c.progSubidas)   c.progSubidas.forEach(d => PROG_SUBIDAS.add(d));
       if(c.velEmbalagem)  Object.entries(c.velEmbalagem).forEach(([k,v]) => { VEL_EMBALAGEM[k] = v; });
     }
@@ -1806,9 +1813,15 @@ function realizado(lote, postoCtx){                 // === vw_lote_realizado
     const postoDoEvento = e.posto || lote.rotaPostos[0];
     return postoDoEvento === postoCtx;
   });
-  const ini = evs.find(e => e.tipo === 'lote_iniciado');
+  /* Início: o mais antigo. Fim: o mais RECENTE — quando a ordem é reaberta e
+     finalizada de novo, há mais de um lote_finalizado, e o que vale é o
+     último. O ajuste de hora corrige exatamente esse; sem ordenar aqui, o
+     cálculo lia o finalizado antigo e a correção parecia não pegar. */
+  const inis = evs.filter(e => e.tipo === 'lote_iniciado').sort((a,b) => a.ts - b.ts);
+  const fins = evs.filter(e => e.tipo === 'lote_finalizado').sort((a,b) => a.ts - b.ts);
+  const ini = inis[0];
   if(!ini) return null;
-  const fim = evs.find(e => e.tipo === 'lote_finalizado');
+  const fim = fins[fins.length - 1];
 
   /* qtdUn é calculado ao registrar. Evento antigo (ou vindo da nuvem sem esse
      campo) fazia a soma virar NaN e o card mostrava "total: NaN". */
@@ -2987,6 +3000,9 @@ function lerProgramacao(){
     const turnoDaLinha = iTurno >= 0
       ? (/noite|2º?\s*turno/i.test(col[iTurno]) ? 'NOITE' : 'DIA')
       : turnoCorrente;
+    /* herdado = veio de um cabeçalho "Noite" anterior, não da própria linha.
+       É só palpite: os Líquidos costumam vir no fim e herdavam a noite. */
+    const turnoHerdado = iTurno < 0 && turnoCorrente === 'NOITE';
 
     const ordem = col[iOrd];
     let desc = '';
@@ -3032,7 +3048,7 @@ function lerProgramacao(){
 
     const ehMixDesc = /\bmix\b/i.test(desc);
     return {ordem, desc, um, obs:'', linha, rota, qtdPlano, unidades, gargalo:g, tempo,
-            lote, defeito:'', postoId, ehBatelada, turno: turnoDaLinha,
+            lote, defeito:'', postoId, ehBatelada, turno: turnoDaLinha, turnoHerdado,
             bateladas: ehMixDesc ? 1 : Math.max(1, parseLotes(lote).length)};
   }).filter(Boolean);
 
@@ -3074,6 +3090,13 @@ function pintaProgramacao(){
         ${p.rota.temShrink ? `<div class="shrink-info">📦 Passa pela etapa de <b>Shrink</b></div>` : ''}
       </td>
       <td><span class="tag azul">${nomeLinha(p.linha)}</span></td>
+      <td>
+        <select data-turno-prog="${p.ordem}" style="border:1px solid var(--linha);border-radius:6px;padding:5px 7px;font-size:12px;${p.turnoHerdado ? 'background:#fdf0dc' : ''}">
+          <option value="DIA"   ${p.turno === 'DIA'   ? 'selected' : ''}>Dia</option>
+          <option value="NOITE" ${p.turno === 'NOITE' ? 'selected' : ''}>Noite</option>
+        </select>
+        ${p.turnoHerdado ? '<div class="rot" style="font-size:9px;color:#8a5a12;margin-top:2px">herdado — confira</div>' : ''}
+      </td>
       <td class="num">${nf(p.qtdPlano)} <span class="rot">${p.um}</span>
         ${p.bateladas > 1 ? `<div class="rot" style="margin-top:3px">${p.bateladas} bateladas de ${nf(Math.round(p.unidades/p.bateladas))} un</div>` : ''}</td>
       <td class="num">${p.rota.unPorEmb ? nf(p.rota.unPorEmb) : '—'}</td>
@@ -3092,6 +3115,15 @@ function pintaProgramacao(){
 }
 
 document.getElementById('btn-ler').onclick = lerProgramacao;
+
+/* Ajuste manual do turno na prévia, antes de subir. O turno herdado de um
+   cabeçalho "Noite" é só um palpite — aqui a Priscila corrige. */
+document.addEventListener('change', e => {
+  const sel = e.target.closest('[data-turno-prog]');
+  if(!sel) return;
+  const p = PROG.find(x => x.ordem === sel.dataset.turnoProg);
+  if(p){ p.turno = sel.value; p.turnoHerdado = false; }
+});
 
 // seletor de dia em Resultados (default hoje)
 (() => {
@@ -4485,31 +4517,65 @@ function pintaCadastros(){
       <td><span class="tag ${m.penaliza ? 'ruim' : 'ok'}">${m.penaliza ? 'penaliza' : 'não penaliza'}</span></td>
       <td class="num">${u.n || '—'}</td>
       <td class="num">${u.min ? u.min.toFixed(0) + ' min' : '—'}</td>
-      <td class="num">${u.n ? '<span class="rot">em uso</span>'
-        : `<button class="bt" data-del="${i}" style="padding:5px 11px;font-size:12px">Remover</button>`}</td>
+      <td class="num" style="white-space:nowrap">
+        <button class="bt" data-edit-motivo="${i}" style="padding:5px 11px;font-size:12px">Editar</button>
+        ${u.n ? '<span class="rot" style="margin-left:4px">em uso</span>'
+        : ` <button class="bt" data-del="${i}" style="padding:5px 11px;font-size:12px">Remover</button>`}</td>
     </tr>`;
   }).join('');
 
   document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    const m = MOTIVOS[+b.dataset.del];
+    if(!confirm(`Remover o motivo "${m.nome}"?`)) return;
     MOTIVOS.splice(+b.dataset.del, 1);
+    salvarConfig();                    // sem isto, voltava ao recarregar
     flash('Motivo removido');
     pintaTudo();
+  });
+
+  /* EDITAR — carrega o motivo no formulário e troca o botão para "Salvar".
+     Antes só dava para adicionar e remover; corrigir um motivo obrigava a
+     apagar e recriar. */
+  document.querySelectorAll('[data-edit-motivo]').forEach(b => b.onclick = () => {
+    const m = MOTIVOS[+b.dataset.editMotivo];
+    if(!m) return;
+    document.getElementById('mp-nome').value = m.nome;
+    document.getElementById('mp-cat').value  = m.cat;
+    document.getElementById('mp-pen').value  = m.penaliza ? '1' : '0';
+    document.getElementById('mp-posto').value = m.postos.length ? m.postos[0] : 'TODOS';
+    MOTIVO_EDITANDO = +b.dataset.editMotivo;
+    const btn = document.getElementById('btn-motivo');
+    btn.textContent = 'Salvar alterações';
+    btn.dataset.editando = '1';
+    document.getElementById('mp-nome').focus();
   });
 }
 
 document.getElementById('btn-motivo').onclick = () => {
   const nome = document.getElementById('mp-nome').value.trim();
   if(!nome){ flash('Escreva o motivo'); return; }
-  if(MOTIVOS.some(m => m.nome.toLowerCase() === nome.toLowerCase())){ flash('Esse motivo já existe'); return; }
+  // nome repetido: só bloqueia se for OUTRO motivo (na edição o próprio nome vale)
+  const choque = MOTIVOS.findIndex(m => m.nome.toLowerCase() === nome.toLowerCase());
+  if(choque >= 0 && choque !== MOTIVO_EDITANDO){ flash('Esse motivo já existe'); return; }
   const pid = document.getElementById('mp-posto').value;
-  MOTIVOS.push({
+  const dados = {
     nome,
     cat: document.getElementById('mp-cat').value,
     penaliza: document.getElementById('mp-pen').value === '1',
     postos: pid === 'TODOS' ? [] : [pid]
-  });
+  };
+  if(MOTIVO_EDITANDO >= 0){
+    MOTIVOS[MOTIVO_EDITANDO] = dados;
+    flash(`Motivo "${nome}" atualizado`);
+  } else {
+    MOTIVOS.push(dados);
+    flash(`Motivo "${nome}" cadastrado`);
+  }
+  MOTIVO_EDITANDO = -1;
+  const btn = document.getElementById('btn-motivo');
+  btn.textContent = 'Adicionar motivo';
   document.getElementById('mp-nome').value = '';
-  flash(`Motivo "${nome}" cadastrado`);
+  salvarConfig();                    // persiste na nuvem
   pintaTudo();
 };
 
@@ -4821,6 +4887,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
