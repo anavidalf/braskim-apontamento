@@ -171,6 +171,8 @@
   .campo label{font-family:'DM Mono',monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--apagado)}
   .campo select,.campo input{border:1px solid var(--linha);border-radius:8px;padding:11px 12px;font-family:'DM Sans',sans-serif;font-size:15px;background:#fff;color:var(--tinta)}
   .campo select:focus,.campo input:focus{outline:2px solid var(--azul);outline-offset:-1px;border-color:var(--azul)}
+  .chk-posto{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:5px 9px;border:1px solid var(--linha);border-radius:7px;cursor:pointer;user-select:none}
+  .chk-posto:hover{background:#f4f6fb}
   .previa{background:#f4f6fb;border:1px solid #dbe0ee;border-radius:10px;padding:15px 17px;margin-top:18px;display:flex;gap:28px;flex-wrap:wrap}
   .previa .val{font-family:'DM Mono',monospace;font-size:21px;font-weight:500}
   .previa .calc{font-family:'DM Mono',monospace;font-size:11px;color:var(--apagado);margin-top:4px}
@@ -772,9 +774,9 @@
             <option value="0">Não — parada planejada (limpeza, refeição)</option>
           </select>
         </div>
-        <div class="campo">
-          <label for="mp-posto">Aparece em qual posto?</label>
-          <select id="mp-posto"></select>
+        <div class="campo" style="flex-basis:100%">
+          <label>Aparece em qual posto? <span class="rot">(pode marcar vários)</span></label>
+          <div id="mp-postos" style="display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px"></div>
         </div>
       </div>
       <button class="btn-primario" id="btn-motivo">Adicionar motivo</button>
@@ -839,6 +841,10 @@
 </div>
 
 <script>
+
+
+
+
 
 
 
@@ -1129,15 +1135,16 @@ const SHRINK_PESSOAS = 1;   // posto de shrink, quando existir separado
    Só o limpador foi cronometrado. Difusor e saponáceo faltam medir. */
 const PRODUTOS_LIQ = [
   {nome:'Limpador perfumado',   ml:120,  unPorCaixa:12, velUnMin:7.0,  pessoas:2, medido:true},
-  {nome:'Difusor de ambientes', ml:null, unPorCaixa:12, velUnMin:null, pessoas:2, medido:false},
+  {nome:'Difusor de ambientes', ml:null, unPorCaixa:12, velUnMin:10.0, pessoas:2, medido:true},
   {nome:'Saponáceo',            ml:null, unPorCaixa:12, velUnMin:5.0,  pessoas:3, medido:true}
 ];
 
 /* velocidade por PRODUTO quando o mesmo posto roda itens de ritmos diferentes.
    Na linha de líquidos o frasco muda o tempo: limpador 7 un/min, saponáceo 5. */
 const VEL_PRODUTO = [
-  {padrao:/saponáceo|saponaceo/i, velUnMin:5.0, fonte:'medido'},
-  {padrao:/limpador/i,            velUnMin:7.0, fonte:'medido: 120mL'}
+  {padrao:/saponáceo|saponaceo/i, velUnMin:5.0,  fonte:'medido'},
+  {padrao:/limpador/i,            velUnMin:7.0,  fonte:'medido: 120mL'},
+  {padrao:/difusor/i,             velUnMin:10.0, fonte:'medido'}
 ];
 function velDoProduto(desc){
   if(!desc) return null;
@@ -1227,6 +1234,38 @@ let MOTIVOS = [
 const motivo = n => MOTIVOS.find(m => m.nome === n) || {cat:'—', penaliza:true};
 let MOTIVO_EDITANDO = -1;   // índice em edição no formulário, ou -1
 
+/* Seleção de postos do motivo — múltipla, por checkbox. Melhor que <select
+   multiple> no tablet, onde não há Ctrl-clique. "Todos os postos" é exclusivo:
+   marcá-lo desmarca os demais, e vice-versa. */
+function montaCheckboxesPosto(){
+  const box = document.getElementById('mp-postos');
+  if(!box) return;
+  box.innerHTML =
+    `<label class="chk-posto" style="font-weight:600"><input type="checkbox" value="TODOS" checked> Todos os postos</label>` +
+    QUADROS.map(q => `<label class="chk-posto"><input type="checkbox" value="${q.id}"> ${nomeLinha(q.linha)} · ${q.nome}</label>`).join('');
+  box.querySelectorAll('input').forEach(inp => inp.onchange = () => {
+    if(inp.value === 'TODOS' && inp.checked){
+      box.querySelectorAll('input').forEach(o => { if(o.value !== 'TODOS') o.checked = false; });
+    } else if(inp.value !== 'TODOS' && inp.checked){
+      const t = box.querySelector('input[value="TODOS"]'); if(t) t.checked = false;
+    }
+    // nada marcado = volta para "Todos"
+    const algum = [...box.querySelectorAll('input')].some(o => o.checked);
+    if(!algum){ const t = box.querySelector('input[value="TODOS"]'); if(t) t.checked = true; }
+  });
+}
+function postosSelecionados(){
+  const box = document.getElementById('mp-postos');
+  const marcados = [...box.querySelectorAll('input:checked')].map(i => i.value);
+  return marcados.includes('TODOS') ? [] : marcados;   // [] = todos os postos
+}
+function marcaPostos(postos){
+  const box = document.getElementById('mp-postos');
+  if(!box) return;
+  const lista = postos && postos.length ? postos : ['TODOS'];
+  box.querySelectorAll('input').forEach(i => i.checked = lista.includes(i.value));
+}
+
 /* motivos válidos para um posto: os gerais + os específicos dele */
 const motivosDoPosto = pid =>
   MOTIVOS.filter(m => !m.postos.length || m.postos.includes(pid));
@@ -1235,7 +1274,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '29/07 18:22';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '29/07 19:24';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1393,7 +1432,21 @@ function ligarAcesso(){
   });
 }
 
+function aplicaPermissoes(){
+  // o botão de Configuração só existe para admin — some da barra dos demais
+  const admin = USUARIO && ehAdmin(USUARIO.email);
+  document.querySelectorAll('#nav button[data-tela]').forEach(b => {
+    if(TELAS_ADMIN.includes(b.dataset.tela)) b.style.display = admin ? '' : 'none';
+  });
+  // se um não-admin estava na Configuração (ou caiu nela), manda para o apontamento
+  if(!admin){
+    const cfg = document.getElementById('tela-config');
+    if(cfg && cfg.classList.contains('on')) irPara('apontamento');
+  }
+}
+
 function pintaUsuario(){
+  aplicaPermissoes();
   const el = document.getElementById('usuario-logado');
   if(!el || !USUARIO) return;
   el.innerHTML = `
@@ -4542,7 +4595,7 @@ function pintaCadastros(){
     document.getElementById('mp-nome').value = m.nome;
     document.getElementById('mp-cat').value  = m.cat;
     document.getElementById('mp-pen').value  = m.penaliza ? '1' : '0';
-    document.getElementById('mp-posto').value = m.postos.length ? m.postos[0] : 'TODOS';
+    marcaPostos(m.postos);
     MOTIVO_EDITANDO = +b.dataset.editMotivo;
     const btn = document.getElementById('btn-motivo');
     btn.textContent = 'Salvar alterações';
@@ -4557,12 +4610,11 @@ document.getElementById('btn-motivo').onclick = () => {
   // nome repetido: só bloqueia se for OUTRO motivo (na edição o próprio nome vale)
   const choque = MOTIVOS.findIndex(m => m.nome.toLowerCase() === nome.toLowerCase());
   if(choque >= 0 && choque !== MOTIVO_EDITANDO){ flash('Esse motivo já existe'); return; }
-  const pid = document.getElementById('mp-posto').value;
   const dados = {
     nome,
     cat: document.getElementById('mp-cat').value,
     penaliza: document.getElementById('mp-pen').value === '1',
-    postos: pid === 'TODOS' ? [] : [pid]
+    postos: postosSelecionados()
   };
   if(MOTIVO_EDITANDO >= 0){
     MOTIVOS[MOTIVO_EDITANDO] = dados;
@@ -4575,6 +4627,7 @@ document.getElementById('btn-motivo').onclick = () => {
   const btn = document.getElementById('btn-motivo');
   btn.textContent = 'Adicionar motivo';
   document.getElementById('mp-nome').value = '';
+  marcaPostos([]);                   // volta para "Todos"
   salvarConfig();                    // persiste na nuvem
   pintaTudo();
 };
@@ -4821,7 +4874,14 @@ function pintaParadas(){
 /* =================================================================
    NAVEGAÇÃO + RELÓGIO
 ================================================================= */
+const TELAS_ADMIN = ['config'];   // telas restritas a administradores
 function irPara(tela){
+  /* Configuração mexe em jornada, lotação, motivos e acessos — só admin.
+     A supervisora que faz apontamento não deve poder alterar isso. */
+  if(TELAS_ADMIN.includes(tela) && !(USUARIO && ehAdmin(USUARIO.email))){
+    flash('A Configuração é restrita a administradores.');
+    return;
+  }
   document.querySelectorAll('.tela').forEach(t => t.classList.remove('on'));
   document.getElementById('tela-' + tela).classList.add('on');
   document.querySelectorAll('#nav button').forEach(b =>
@@ -4867,9 +4927,7 @@ function tique(){
 }
 
 montaFormTurno();
-document.getElementById('mp-posto').innerHTML =
-  `<option value="TODOS">Todos os postos</option>` +
-  QUADROS.map(q => `<option value="${q.id}">${nomeLinha(q.linha)} · ${q.nome}</option>`).join('');
+montaCheckboxesPosto();
 pintaTudo();
 pintaCarimbo();
 ligaReprocessar();
@@ -4887,6 +4945,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
