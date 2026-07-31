@@ -1045,6 +1045,10 @@
 
 
 
+
+
+
+
 /* =================================================================
    CADASTRO  (o que você configura uma vez)
 ================================================================= */
@@ -1275,7 +1279,7 @@ const motivosDoPosto = pid =>
    ESTADO  — só duas coisas são guardadas: LOTES e EVENTOS.
    EVENTOS é append-only. Nunca se apaga, nunca se edita.
 ================================================================= */
-const VERSAO_SISTEMA = '30/07 18:57';   // carimbo de build — confira se bate com o que você publicou
+const VERSAO_SISTEMA = '31/07 14:46';   // carimbo de build — confira se bate com o que você publicou
 let AGORA = new Date();   // relógio REAL da fábrica
 const _dm = d => String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0');
 const DIA_HOJE  = _dm(AGORA);
@@ -1873,9 +1877,16 @@ function realizado(lote, postoCtx){                 // === vw_lote_realizado
      cálculo lia o finalizado antigo e a correção parecia não pegar. */
   const inis = evs.filter(e => e.tipo === 'lote_iniciado').sort((a,b) => a.ts - b.ts);
   const fins = evs.filter(e => e.tipo === 'lote_finalizado').sort((a,b) => a.ts - b.ts);
+  const paus = evs.filter(e => e.tipo === 'lote_pausado').sort((a,b) => a.ts - b.ts);
   const ini = inis[0];
   if(!ini) return null;
   const fim = fins[fins.length - 1];
+  const ultIni = inis[inis.length - 1];
+  /* Pausa vale se veio DEPOIS do último início e sem finalização depois dela.
+     A ordem sai da máquina (libera o posto) mas não é dada como concluída. */
+  const ultPausa = paus[paus.length - 1];
+  const pausada = !!(ultPausa && ultPausa.ts >= ultIni.ts &&
+                     (!fim || fim.ts < ultPausa.ts));
 
   /* qtdUn é calculado ao registrar. Evento antigo (ou vindo da nuvem sem esse
      campo) fazia a soma virar NaN e o card mostrava "total: NaN". */
@@ -1906,6 +1917,10 @@ function realizado(lote, postoCtx){                 // === vw_lote_realizado
     delta: lote.padraoMin - liquido,          // (+) folga  (−) atraso
     pct: Math.min(100, produzida / lote.prevista * 100),
     finalizado: !!fim,
+    pausada,
+    // libera o posto: para efeito de "está rodando?", uma ordem pausada
+    // conta como fora da máquina, sem ser finalizada
+    foraDaMaquina: !!fim || pausada,
     parado: paradas().some(p => p.lote === lote.id && p.aberta)
   };
 }
@@ -3798,7 +3813,7 @@ function pintaApontamento(){
                finalizado que continua na tela para lançar quantidade. Para o setup
                isso não serve: preparo é o intervalo entre um lote que ACABOU e o
                próximo que AINDA NÃO COMEÇOU. */
-            const emProducao   = ordens.find(x => x.r && !x.r.finalizado);
+            const emProducao   = ordens.find(x => x.r && !x.r.foraDaMaquina);
             const esperandoVez = ordens.some(x => !x.r);
 
             if(emProducao) return '';       // máquina produzindo: não é preparo
@@ -3880,7 +3895,7 @@ function pintaApontamento(){
                trava mais o posto — antes o card ficava travado para sempre e
                nenhuma ordem do dia conseguia começar. */
             const algoRodando = ordens.some(x =>
-              x.r && !x.r.finalizado && (AGORA.getTime() - x.r.inicio) < min(12 * 60));
+              x.r && !x.r.foraDaMaquina && (AGORA.getTime() - x.r.inicio) < min(12 * 60));
             const proxima = !r && !algoRodando;
 
             const podeReordenar = POSTOS_REORDENA.includes(q.id) && ordens.length > 1;
@@ -3942,6 +3957,13 @@ function pintaApontamento(){
                      <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
                              title="Tirar da tela de apontamento"
                              style="margin-left:5px;border-color:#bcd3f7;color:#2c4a7c">✓ Concluir</button>`
+                  : (r && r.pausada)
+                    ? `<span class="tag med">pausada ${hora(r.inicio)}</span>
+                       <button class="bt iniciar" data-retomar="${l.id}" data-posto-rt="${q.id}"
+                               title="Voltar a produzir esta ordem"
+                               style="margin-left:5px">▶ Retomar</button>
+                       <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
+                               style="border-color:#bcd3f7;color:#2c4a7c">✓ Concluir lote</button>`
                   : (r && r.finalizado)
                     ? `<span class="tag ok">finalizada ${hora(r.fim)}</span>
                        <button class="bt" data-ajustafim="${l.id}" data-posto-af="${q.id}"
@@ -3969,6 +3991,12 @@ function pintaApontamento(){
                     : par
                       ? ''
                       : `<button class="bt parar" data-par="${l.id}">Parar</button>
+                         ${!(r && r.produzida > 0) ? `<button class="bt" data-cancelaini="${l.id}" data-posto-ci="${q.id}"
+                              title="Foi iniciada por engano — volta para a fila"
+                              style="border-color:#f0d9a8;color:#8a5a12">Cancelar início</button>` : ''}
+                         <button class="bt" data-liberaposto="${l.id}" data-posto-lp="${q.id}"
+                              title="Pausar esta e liberar o posto para começar outra"
+                              style="border-color:#bcd3f7;color:#2c4a7c">Pausar e liberar posto</button>
                          <button class="bt" data-fim="${l.id}" data-posto-ctx="${q.id}">Finalizar e ir para a próxima</button>
                          <button class="bt" data-concluirlote="${l.id}" data-posto-cl="${q.id}"
                                  title="A quantidade deste lote está fechada — sai do apontamento"
@@ -4150,6 +4178,74 @@ function pintaApontamento(){
     nuvemSalvar('lotes', l.id, l);
     if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
     flash(`Ordem ${l.numero} reativada`);
+    pintaTudo();
+  });
+
+  /* RETOMAR — volta a produzir uma ordem que estava pausada. Um novo início
+     depois da pausa reabre a produção; o produzido anterior é preservado
+     (contagens nunca são apagadas). */
+  document.querySelectorAll('#apont [data-retomar]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.retomar);
+    if(!l) return;
+    const pid = b.dataset.postoRt;
+    // só retoma se o posto estiver livre (ninguém produzindo nele agora)
+    const ocupado = LOTES.some(x => {
+      if(x.id === l.id) return false;
+      if(x.posto !== pid && !(x.rotaPostos && x.rotaPostos.indexOf(pid) >= 0)) return false;
+      const rr = realizado(x, pid);
+      return rr && !rr.foraDaMaquina;
+    });
+    if(ocupado){ flash('O posto está ocupado por outra ordem. Pause ou finalize a atual primeiro.'); return; }
+    registrar({tipo:'lote_iniciado', linha:l.linha, lote:l.id, origem:'supervisao', posto:pid});
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Ordem ${l.numero} retomada`);
+    pintaTudo();
+  });
+
+  /* CANCELAR INÍCIO — a ordem foi iniciada por engano e ainda não produziu.
+     Anula o evento de início; a ordem volta para a fila como se nunca tivesse
+     começado. Se já houver produção lançada, o botão nem aparece. */
+  document.querySelectorAll('#apont [data-cancelaini]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.cancelaini);
+    if(!l) return;
+    const pid = b.dataset.postoCi;
+    const r = realizado(l, pid);
+    if(r && r.produzida > 0){ flash('Esta ordem já tem produção lançada — use Parar'); return; }
+    if(!confirm(`Cancelar o início da ordem ${l.numero}${l.loteFab ? ' · lote ' + l.loteFab : ''}?\n\nEla volta para a fila.`)) return;
+
+    // anula o(s) evento(s) de início desta ordem neste posto
+    ativos().filter(e => e.lote === l.id && e.tipo === 'lote_iniciado' &&
+                         (!l.rotaPostos || !e.posto || e.posto === pid))
+            .forEach(e => { e.anulado = true; nuvemSalvar('eventos', e.id, e); });
+
+    // se era etapa em cascata, recolhe a liberação da próxima
+    if(l.rotaPostos){
+      const idx = l.rotaPostos.indexOf(pid);
+      if(idx >= 0 && l.etapaLiberada === idx + 1){
+        l.etapaLiberada = idx;
+        nuvemSalvar('lotes', l.id, l);
+      }
+    }
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Início da ordem ${l.numero} cancelado — de volta à fila`);
+    pintaTudo();
+  });
+
+  /* PAUSAR E LIBERAR O POSTO — precisa rodar outra ordem antes de terminar
+     esta. Guarda o que já foi produzido, tira esta da máquina e deixa o posto
+     livre para iniciar a próxima. A ordem pausada continua na tela, com o
+     produzido preservado, e pode ser retomada depois. */
+  document.querySelectorAll('#apont [data-liberaposto]').forEach(b => b.onclick = () => {
+    const l = LOTES.find(x => x.id === b.dataset.liberaposto);
+    if(!l) return;
+    const pid = b.dataset.postoLp;
+    if(!confirm(`Pausar a ordem ${l.numero}${l.loteFab ? ' · lote ' + l.loteFab : ''} e liberar o posto?\n\nO que já foi produzido fica guardado. Você pode retomar depois.`)) return;
+
+    // fecha o ciclo atual sem concluir o lote: registra saída da máquina.
+    // 'lote_pausado' encerra a produção corrente mas NÃO conta como finalizado.
+    registrar({tipo:'lote_pausado', linha:l.linha, lote:l.id, origem:'supervisao', posto:pid});
+    if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    flash(`Ordem ${l.numero} pausada · posto liberado para a próxima`);
     pintaTudo();
   });
 
@@ -4997,6 +5093,10 @@ ligarAcesso();
 
 
 document.getElementById('cancelar-parada').onclick = () => document.getElementById('modal-parada').classList.remove('on');
+
+
+
+
 
 
 
